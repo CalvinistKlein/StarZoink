@@ -193,6 +193,8 @@ class LLMAgent:
             "Write narrative prose in a direct, gritty, and tactical style. Keep the tone professional, like an Imperial Navy logs report. Do not use flowery, overly dramatic, or verbose language.\n"
             "Incorporate FFG dice results (Success/Failure, Advantage/Threat, Triumph/Despair) into in-universe outcomes.\n"
             "CRITICAL RULES:\n"
+            "- Your narrative MUST directly address and resolve the player's immediate command or query. If the player asks a question, queries a database, or talks to an NPC, you must write the response, dialogue, or information retrieved within your prose.\n"
+            "- Do not repeat background information or location descriptions if they have not changed. Focus on the action itself and answering the query.\n"
             "- The story characters (and narration) must NEVER roll dice, mention dice, refer to dice, see stats, or mention tabletop mechanics. All dice rolls and rules happen outside the narrative world. Translate the dice outcomes purely into environmental events, mechanical failures, tactical changes, or physical reactions.\n"
             "- Advantage/Threat represent positive/negative side-effects. Triumph is a major boon, Despair is a major complication.\n"
             "Keep descriptions very concise (1-2 short paragraphs max)."
@@ -203,7 +205,7 @@ class LLMAgent:
             f"COMMAND:\n\"{command}\"\n\n"
             f"ACTION RESULT / STATE MUTATIONS / DICE ROLL:\n{json.dumps(action_result, indent=2)}\n\n"
             f"RECENT HISTORY:\n{json.dumps(history_data, indent=2)}\n\n"
-            "Generate the narrative prose now. Remember: no mention of dice, rolls, or numbers in the narration."
+            "Generate the narrative prose now. Ensure you answer the player's query or resolve their command directly and concisely. Do not mention dice, rolls, or numbers."
         )
         
         return self.query(prompt, system_instruction, is_parser=False).strip()
