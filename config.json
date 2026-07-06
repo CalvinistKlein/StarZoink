@@ -1,3 +1,5 @@
 {
-  "OLLAMA_URL": "192.168.1.121:11434"
+  "OLLAMA_URL": "192.168.1.121:11434",
+  "PARSER_MODEL": "huihui_ai/qwen2.5-abliterate:3b",
+  "NARRATOR_MODEL": "huihui_ai/qwen2.5-abliterate:3b"
 }
