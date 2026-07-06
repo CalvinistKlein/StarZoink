@@ -4,24 +4,29 @@ import re
 import sys
 from datetime import datetime, timedelta
 
-# Add DungeonOfTheStars to path
-sys.path.append("/home/calvin/Documents/DungeonOfTheStars")
+# Add project root to path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(BASE_DIR)
 
 from md_db import MarkdownDB
 from dice import roll_pool, pretty_print_results
 from llm_agent import LLMAgent
+from rag_engine import RagEngine
 
-GAME_DATA_DIR = "/home/calvin/Documents/DungeonOfTheStars/GameData"
-GAME_INFO_DIR = "/home/calvin/Documents/DungeonOfTheStars/Game_info"
+GAME_DATA_DIR = os.path.join(BASE_DIR, "GameData")
+GAME_INFO_DIR = os.path.join(BASE_DIR, "Game_info")
 PLAYER_FILE = os.path.join(GAME_DATA_DIR, "Player Data/Commodore_Nimrod_Heros.md")
 HISTORY_FILE = os.path.join(GAME_DATA_DIR, "game_history.json")
+CHRONICLE_FILE = os.path.join(GAME_DATA_DIR, "campaign_chronicle.md")
 
 class DungeonOfTheStarsEngine:
     def __init__(self):
-        self.llm = LLMAgent(config_path="/home/calvin/Documents/DungeonOfTheStars/config.json")
+        self.llm = LLMAgent(config_path=os.path.join(BASE_DIR, "config.json"))
+        self.rag = RagEngine()
         self.locations = self._load_locations()
         self.skills_map = self._load_skills_map()
         self.history = self._load_history()
+        self.chronicle = self._load_chronicle()
         
     def _load_locations(self):
         """Parses Game_info/locations.md into a structured room registry."""
@@ -146,11 +151,14 @@ class DungeonOfTheStarsEngine:
         loc_id = self.get_current_location_id(loc_name)
         loc_data = self.locations.get(loc_id, self.locations.get("bridge"))
         
-        # 4. Gather recent history context (last 3 turns) without raw narrative text to prevent LLM repetition loops
-        history_context = []
+        # 4. Gather recent history context (last 3 turns) and campaign chronicle
+        history_context = {
+            "recent_turns": [],
+            "campaign_chronicle": self.chronicle
+        }
         if self.history:
             for h in self.history[-3:]:
-                history_context.append({
+                history_context["recent_turns"].append({
                     "turn": h.get("turn"),
                     "player_command": h.get("player_command"),
                     "dice_roll": h.get("dice_roll"),
@@ -173,6 +181,44 @@ class DungeonOfTheStarsEngine:
             })
             self._save_history()
             return rejection
+
+        # 6b. Check if an NPC was detected in the player action
+        detected = parsed.get("detected_npc")
+        if detected and isinstance(detected, dict):
+            name = detected.get("name")
+            role = detected.get("role", "Officer")
+            faction = detected.get("faction", "Imperial Navy")
+            if name:
+                # Clean name (spaces to underscores, remove special chars)
+                name_clean = re.sub(r"\s+", "_", name.strip())
+                # See if we have a file for them
+                npc_file = self._find_npc_file(name_clean)
+                if not npc_file:
+                    # Query Wookieepedia RAG for context
+                    lore_context = ""
+                    if hasattr(self, "rag") and self.rag:
+                        rag_query = name_clean.replace("_", " ")
+                        lore_context = self.rag.query_lore(rag_query, n_results=2)
+                        
+                    # Call LLM to generate character sheet
+                    location_name = loc_data.get("name", "Bridge")
+                    card_md = self.llm.generate_npc_card(name_clean, role, faction, location_id=location_name, lore_context=lore_context)
+                    
+                    # Write profile to file
+                    npc_dir = os.path.join(GAME_DATA_DIR, "NPC Data")
+                    if "officer" in role.lower() or "cmd" in role.lower() or "commander" in role.lower():
+                        npc_dir = os.path.join(GAME_DATA_DIR, "Player Data/Command Staff")
+                    os.makedirs(npc_dir, exist_ok=True)
+                    
+                    target_card_path = os.path.join(npc_dir, f"{name_clean}.md")
+                    try:
+                        with open(target_card_path, "w", encoding="utf-8") as f:
+                            f.write(card_md)
+                    except Exception as e:
+                        print(f"Warning: Failed to save NPC card: {e}")
+                        
+                    # Register NPC to current location's list
+                    self._register_npc_to_location(loc_id, name_clean)
             
         # 7. Check if skill check is required
         roll_results = None
@@ -301,6 +347,10 @@ class DungeonOfTheStarsEngine:
         
         narration = self.llm.generate_narration(player_command, action_outcome, loc_data, history_context)
         
+        # 10b. Update Campaign Chronicle
+        turn_bullet = self.llm.summarize_turn(player_command, narration, state_updates)
+        self._save_chronicle(turn_bullet)
+
         # 11. Save to History log
         self.history.append({
             "turn": len(self.history) + 1,
@@ -321,3 +371,86 @@ class DungeonOfTheStarsEngine:
                 if file.replace(".md", "").lower() == ship_name.lower():
                     return os.path.join(root, file)
         return None
+
+    def _load_chronicle(self):
+        """Loads campaign_chronicle.md as a text block."""
+        if os.path.exists(CHRONICLE_FILE):
+            try:
+                with open(CHRONICLE_FILE, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+            except Exception:
+                pass
+        return "# Campaign Chronicle\n* Operations commenced aboard Sworinta IV orbit."
+
+    def _save_chronicle(self, new_bullet):
+        """Appends a new bullet point to campaign_chronicle.md and updates state."""
+        os.makedirs(os.path.dirname(CHRONICLE_FILE), exist_ok=True)
+        new_bullet = new_bullet.strip()
+        if new_bullet:
+            if not new_bullet.startswith("*"):
+                new_bullet = f"* {new_bullet}"
+            self.chronicle = self.chronicle.strip() + f"\n{new_bullet}"
+            try:
+                with open(CHRONICLE_FILE, "w", encoding="utf-8") as f:
+                    f.write(self.chronicle + "\n")
+            except Exception as e:
+                print(f"Warning: Failed to save campaign chronicle: {e}")
+
+    def _find_npc_file(self, npc_name):
+        """Searches for an NPC file in the GameData folders."""
+        for folder in ["Player Data/Command Staff", "NPC Data"]:
+            path = os.path.join(GAME_DATA_DIR, folder, f"{npc_name}.md")
+            if os.path.exists(path):
+                return path
+        return None
+
+    def _register_npc_to_location(self, loc_id, npc_name_clean):
+        """Appends the NPC to the specified location in Game_info/locations.md."""
+        loc_file = os.path.join(GAME_INFO_DIR, "locations.md")
+        if not os.path.exists(loc_file):
+            return
+            
+        try:
+            with open(loc_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as e:
+            print(f"Warning: Failed to read locations file: {e}")
+            return
+            
+        new_lines = []
+        in_target_section = False
+        npc_added = False
+        display_name = npc_name_clean.replace("_", " ")
+        
+        for line in lines:
+            line_str = line.strip()
+            if line_str.startswith("## "):
+                sec_name = line_str[3:].strip().lower()
+                loc = self.locations.get(loc_id)
+                if loc and loc["name"].lower() == sec_name:
+                    in_target_section = True
+                else:
+                    in_target_section = False
+                    
+            if in_target_section and line_str.startswith("*   **NPCs present:**"):
+                # Append to NPCs list
+                parts = line_str.split("present:**")
+                npcs_raw = parts[1].strip()
+                npcs = [n.replace("`", "").strip() for n in npcs_raw.split(",") if n.strip()]
+                if display_name not in npcs:
+                    npcs.append(display_name)
+                    new_npcs_str = ", ".join(f"`{n}`" for n in npcs)
+                    indent = line[:line.find("*")]
+                    line = f"{indent}*   **NPCs present:** {new_npcs_str}\n"
+                    npc_added = True
+                    
+            new_lines.append(line)
+            
+        if npc_added:
+            try:
+                with open(loc_file, "w", encoding="utf-8") as f:
+                    f.writelines(new_lines)
+                # Reload locations registry
+                self.locations = self._load_locations()
+            except Exception as e:
+                print(f"Warning: Failed to write locations file: {e}")

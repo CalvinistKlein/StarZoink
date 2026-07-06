@@ -1,0 +1,26 @@
+# Python compilation files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Game logs, configs, and history
+import.log
+config.json
+GameData/game_history.json
+GameData/campaign_chronicle.md
+
+# Game saves and runtime dynamic NPCs
+GameData/Saves/
+GameData/NPC Data/
+
+# Large Wookieepedia XML dumps and database folders
+starwars_pages_current.xml
+wookepedia-dump
+StarWars_Wookepedia_*/
+KnowledgeBase/

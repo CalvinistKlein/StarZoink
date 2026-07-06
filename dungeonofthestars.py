@@ -4,8 +4,9 @@ import time
 import json
 from datetime import datetime
 
-# Add DungeonOfTheStars to path
-sys.path.append("/home/calvin/Documents/DungeonOfTheStars")
+# Add project root to path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(BASE_DIR)
 
 from rich.console import Console, Group
 from rich.layout import Layout
@@ -38,7 +39,8 @@ def get_progress_bar(current, max_val, color="green", empty_color="grey23"):
 def get_fleet_status():
     """Reads status metrics for all capital escort vessels."""
     fleet = []
-    ship_data_dir = "/home/calvin/Documents/DungeonOfTheStars/GameData/ShipData"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    ship_data_dir = os.path.join(base_dir, "GameData/ShipData")
     if not os.path.exists(ship_data_dir):
         return fleet
         
@@ -99,6 +101,7 @@ def get_fleet_status():
 
 class DungeonOfTheStarsTUI:
     def __init__(self):
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
         try:
             self.engine = DungeonOfTheStarsEngine()
         except ConnectionError as e:
@@ -116,7 +119,7 @@ class DungeonOfTheStarsTUI:
 
     def _add_initial_narration(self):
         # Read the current player location to establish context
-        player_file = "/home/calvin/Documents/DungeonOfTheStars/GameData/Player Data/Commodore_Nimrod_Heros.md"
+        player_file = os.path.join(self.base_dir, "GameData/Player Data/Commodore_Nimrod_Heros.md")
         data = MarkdownDB.read_file(player_file)
         loc_name = data["fields"].get("Current Location", "Bridge, The Broken Sunrise (Orbiting Sworinta IV)")
         
@@ -132,7 +135,7 @@ class DungeonOfTheStarsTUI:
 
     def draw_layout(self):
         # 1. Read player stats dynamically
-        player_file = "/home/calvin/Documents/DungeonOfTheStars/GameData/Player Data/Commodore_Nimrod_Heros.md"
+        player_file = os.path.join(self.base_dir, "GameData/Player Data/Commodore_Nimrod_Heros.md")
         player_data = MarkdownDB.read_file(player_file)
         
         wounds_str = player_data["fields"].get("Wounds (Health)", "0").strip()
@@ -266,13 +269,13 @@ class DungeonOfTheStarsTUI:
     def _handle_save_command(self):
         """Creates a snapshot backup of the current game files to Saves directory."""
         import shutil
-        save_dir = "/home/calvin/Documents/DungeonOfTheStars/GameData/Saves/manual_save"
+        save_dir = os.path.join(self.base_dir, "GameData/Saves/manual_save")
         os.makedirs(save_dir, exist_ok=True)
         
         try:
-            player_src = "/home/calvin/Documents/DungeonOfTheStars/GameData/Player Data"
-            ship_src = "/home/calvin/Documents/DungeonOfTheStars/GameData/ShipData"
-            history_src = "/home/calvin/Documents/DungeonOfTheStars/GameData/game_history.json"
+            player_src = os.path.join(self.base_dir, "GameData/Player Data")
+            ship_src = os.path.join(self.base_dir, "GameData/ShipData")
+            history_src = os.path.join(self.base_dir, "GameData/game_history.json")
             
             shutil.copytree(player_src, os.path.join(save_dir, "Player Data"), dirs_exist_ok=True)
             shutil.copytree(ship_src, os.path.join(save_dir, "ShipData"), dirs_exist_ok=True)
@@ -295,7 +298,7 @@ class DungeonOfTheStarsTUI:
         key = parts[1].lower()
         val = parts[2].strip()
         
-        config_path = "/home/calvin/Documents/DungeonOfTheStars/config.json"
+        config_path = os.path.join(self.base_dir, "config.json")
         cfg = {}
         if os.path.exists(config_path):
             try:
