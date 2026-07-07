@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StarZork: Fleet Command Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Material 3 Dark Theme Palette */
+            --md-sys-color-background: #0f1115;
+            --md-sys-color-surface: #171a21;
+            --md-sys-color-surface-container: #1d212b;
+            --md-sys-color-surface-container-high: #242936;
+            --md-sys-color-primary: #90caf9;
+            --md-sys-color-on-primary: #0d314b;
+            --md-sys-color-secondary: #b0bec5;
+            --md-sys-color-on-secondary: #273238;
+            --md-sys-color-outline: #414755;
+            --md-sys-color-outline-variant: #303540;
+            --md-sys-color-on-surface: #e2e2e9;
+            --md-sys-color-on-surface-variant: #c1c7d5;
+            --md-sys-color-error: #ffb4ab;
+            --md-sys-color-on-error: #690005;
+            --md-sys-color-warning: #ffe082;
+            
+            --md-elevation-1: 0px 1px 3px 1px rgba(0, 0, 0, 0.15), 0px 1px 2px 0px rgba(0, 0, 0, 0.30);
+            --md-elevation-2: 0px 2px 6px 2px rgba(0, 0, 0, 0.15), 0px 1px 2px 0px rgba(0, 0, 0, 0.30);
+            --md-elevation-3: 0px 4px 8px 3px rgba(0, 0, 0, 0.15), 0px 1px 3px 0px rgba(0, 0, 0, 0.30);
+
+            --font-family: 'Inter', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--md-sys-color-background);
+            color: var(--md-sys-color-on-surface);
+            font-family: var(--font-family);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        header {
+            background: var(--md-sys-color-surface);
+            border-bottom: 1px solid var(--md-sys-color-outline-variant);
+            box-shadow: var(--md-elevation-1);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--md-sys-color-on-surface);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        h1 span.logo-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--md-sys-color-primary);
+        }
+
+        .header-meta {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--md-sys-color-on-surface-variant);
+            display: flex;
+            gap: 24px;
+        }
+
+        .header-meta span.active-value {
+            color: var(--md-sys-color-primary);
+            font-weight: 600;
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            padding: 24px;
+            gap: 24px;
+            height: calc(100vh - 68px);
+            overflow: hidden;
+        }
+
+        /* Sidebar Panels */
+        .sidebar {
+            width: 340px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            height: 100%;
+        }
+
+        .panel {
+            background: var(--md-sys-color-surface);
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 12px;
+            box-shadow: var(--md-elevation-1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+
+        .panel:hover {
+            border-color: var(--md-sys-color-outline);
+            box-shadow: var(--md-elevation-2);
+        }
+
+        .panel-header {
+            background: var(--md-sys-color-surface-container);
+            border-bottom: 1px solid var(--md-sys-color-outline-variant);
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            letter-spacing: 0.75px;
+            color: var(--md-sys-color-on-surface-variant);
+            text-transform: uppercase;
+        }
+
+        .panel-content {
+            padding: 16px;
+            font-size: 0.9rem;
+            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        /* Metric Progress Bars (Material Linear Progress Indicators) */
+        .metric-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .metric-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background: var(--md-sys-color-outline-variant);
+            border-radius: 100px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 100px;
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .fill-green {
+            background-color: #81c784;
+        }
+
+        .fill-cyan {
+            background-color: #4fc3f7;
+        }
+
+        .fill-red {
+            background-color: var(--md-sys-color-error);
+        }
+
+        .fill-yellow {
+            background-color: #ffd54f;
+        }
+
+        /* Attribute Grid */
+        .attribute-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 4px;
+        }
+
+        .attribute-card {
+            background: var(--md-sys-color-surface-container);
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .attribute-card div:first-child {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--md-sys-color-on-surface-variant);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .attribute-card div:last-child {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--md-sys-color-primary);
+            margin-top: 4px;
+        }
+
+        /* Buttons and Controls (Material Filled / Outlined Buttons) */
+        .control-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .btn {
+            background: transparent;
+            border: 1px solid var(--md-sys-color-outline);
+            border-radius: 100px;
+            padding: 12px 18px;
+            font-family: var(--font-family);
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--md-sys-color-primary);
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            outline: none;
+        }
+
+        .btn:hover {
+            background: rgba(144, 202, 249, 0.08);
+            border-color: var(--md-sys-color-primary);
+        }
+
+        .btn:active {
+            background: rgba(144, 202, 249, 0.16);
+        }
+
+        .btn-restart {
+            border-color: rgba(255, 180, 171, 0.4);
+            color: var(--md-sys-color-error);
+        }
+
+        .btn-restart:hover {
+            background: rgba(255, 180, 171, 0.08);
+            border-color: var(--md-sys-color-error);
+        }
+
+        /* Center Content Area */
+        .console-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            height: 100%;
+        }
+
+        /* Scrollable Narrative Log */
+        .narrative-log {
+            flex: 1;
+            background: var(--md-sys-color-surface);
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 12px;
+            padding: 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            box-shadow: var(--md-elevation-1);
+        }
+
+        .narrative-entry {
+            line-height: 1.6;
+            font-size: 0.95rem;
+            color: var(--md-sys-color-on-surface);
+            word-wrap: break-word;
+        }
+
+        .prompt-line {
+            color: var(--md-sys-color-primary);
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .prompt-line::before {
+            content: "";
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--md-sys-color-primary);
+        }
+
+        /* Color classes from markup mapping (styled for material integration) */
+        .bold-green { color: #81c784; font-weight: 600; }
+        .bold-cyan { color: #4fc3f7; font-weight: 600; }
+        .bold-red { color: #ff8a80; font-weight: 600; }
+        .bold-yellow { color: #ffd54f; font-weight: 600; }
+        .bold-magenta { color: #ea80fc; font-weight: 600; }
+        .bold-orange { color: #ffb74d; font-weight: 600; }
+        
+        .green { color: #a5d6a7; }
+        .cyan { color: #81d4fa; }
+        .red { color: #ffab91; }
+        .yellow { color: #ffe082; }
+        .magenta { color: #f48fb1; }
+        .orange { color: #ffe0b2; }
+        .white { color: #ffffff; }
+
+        /* Speech / Dialogue Box styling */
+        .speech-container {
+            background: var(--md-sys-color-surface-container-high);
+            border-left: 4px solid var(--dialogue-color, var(--md-sys-color-primary));
+            border-radius: 4px 12px 12px 4px;
+            padding: 12px 16px;
+            margin: 14px 0;
+            box-shadow: var(--md-elevation-1);
+        }
+        .speech-speaker {
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+        .speech-text {
+            font-style: italic;
+            color: var(--md-sys-color-on-surface);
+            line-height: 1.45;
+        }
+
+        /* Terminal Input Area */
+        .input-area {
+            display: flex;
+            gap: 16px;
+            background: var(--md-sys-color-surface);
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: var(--md-elevation-1);
+            align-items: center;
+        }
+
+        .input-field {
+            flex: 1;
+            background: var(--md-sys-color-surface-container);
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 8px;
+            padding: 14px 16px;
+            font-family: var(--font-family);
+            font-size: 0.95rem;
+            color: var(--md-sys-color-on-surface);
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .input-field:focus {
+            border-color: var(--md-sys-color-primary);
+            background: var(--md-sys-color-surface-container-high);
+        }
+
+        .btn-send {
+            background: var(--md-sys-color-primary);
+            border: none;
+            color: var(--md-sys-color-on-primary);
+            padding: 14px 28px;
+            font-family: var(--font-family);
+            font-weight: 600;
+            font-size: 0.9rem;
+            border-radius: 100px;
+            cursor: pointer;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: var(--md-elevation-1);
+        }
+
+        .btn-send:hover {
+            background-color: #a6d4fa;
+            box-shadow: var(--md-elevation-2);
+        }
+
+        .btn-send:active {
+            background-color: #90caf9;
+        }
+
+        /* Overlay Modals */
+        .overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(15, 17, 21, 0.8);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+        }
+
+        .overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal {
+            background: var(--md-sys-color-surface);
+            border: 1px solid var(--md-sys-color-outline);
+            border-radius: 24px;
+            box-shadow: var(--md-elevation-3);
+            width: 720px;
+            max-width: 90%;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transform: scale(0.95);
+            transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .overlay.active .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            background: var(--md-sys-color-surface-container);
+            border-bottom: 1px solid var(--md-sys-color-outline-variant);
+            padding: 16px 24px;
+            font-weight: 600;
+            font-size: 1.05rem;
+            color: var(--md-sys-color-on-surface);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: var(--md-sys-color-on-surface-variant);
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: color 0.2s ease;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--md-sys-color-on-surface);
+        }
+
+        .modal-body {
+            padding: 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--md-sys-color-outline-variant);
+            background: var(--md-sys-color-surface-container);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        /* Vector Map & Schematic Overlay styling */
+        .vector-art {
+            background: var(--md-sys-color-surface-container);
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            width: 100%;
+            min-height: 380px;
+        }
+        .vector-art svg {
+            width: 100%;
+            height: auto;
+            max-height: 65vh;
+            display: block;
+        }
+
+        .btn-tab {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--md-sys-color-outline-variant);
+            color: var(--md-sys-color-on-surface-variant);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .btn-tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .btn-tab.active {
+            background: var(--md-sys-color-primary-container) !important;
+            color: var(--md-sys-color-on-primary-container) !important;
+            border-color: var(--md-sys-color-primary) !important;
+            font-weight: 700;
+        }
+
+
+        /* Form styling for Settings */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--md-sys-color-on-surface-variant);
+        }
+
+        .form-input {
+            width: 100%;
+            background: var(--md-sys-color-surface-container);
+            border: 1px solid var(--md-sys-color-outline-variant);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: var(--md-sys-color-on-surface);
+            font-family: var(--font-family);
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-input:focus {
+            border-color: var(--md-sys-color-primary);
+        }
+
+        .form-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            margin-top: 12px;
+            font-size: 0.9rem;
+            color: var(--md-sys-color-on-surface);
+        }
+
+        /* Launcher Mode Modal */
+        #launcher-modal {
+            max-width: 480px;
+            border-radius: 28px;
+        }
+
+        #launcher-modal .btn-choice {
+            width: 100%;
+            margin-bottom: 12px;
+            padding: 16px;
+            font-size: 0.95rem;
+            border-radius: 100px;
+        }
+
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--md-sys-color-outline-variant);
+            border-radius: 100px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--md-sys-color-outline);
+        }
+
+        /* Standard Blinking Terminal Cursor */
+        .cursor {
+            display: inline-block;
+            width: 2px;
+            height: 16px;
+            background: var(--md-sys-color-primary);
+            margin-left: 4px;
+            animation: blink 1s step-end infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes blink {
+            from, to { background-color: transparent }
+            50% { background-color: var(--md-sys-color-primary); }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1><span class="logo-dot"></span> StarZork: Fleet Command</h1>
+        <div class="header-meta">
+            <div>Sector: <span id="meta-sector" class="active-value">Sworinta IV Orbit</span></div>
+            <div>Status: <span id="meta-status" class="active-value">Online</span></div>
+            <div>Stardate: <span id="meta-time" class="active-value">--:--:--</span></div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Left Side Dashboard -->
+        <div class="sidebar">
+            <!-- Command Profile -->
+            <div class="panel">
+                <div class="panel-header">Active Commandant</div>
+                <div class="panel-content">
+                    <div id="cmd-name" style="font-weight: 600; font-size: 1.05rem; color: var(--md-sys-color-primary); margin-bottom: 2px;">Commodore Heros</div>
+                    <div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 8px;">Location: <span id="cmd-loc" style="color: var(--md-sys-color-on-surface); font-weight: 500;">Bridge</span></div>
+                    <div style="font-size: 0.85rem; margin-bottom: 12px;">Credits: <span id="cmd-credits" style="color: var(--md-sys-color-warning); font-weight: 600;">1,000,000</span></div>
+                    
+                    <div class="metric-group">
+                        <div class="metric-label">
+                            <span>Health/Wounds</span>
+                            <span id="label-wounds">0/14</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div id="bar-wounds" class="progress-bar-fill fill-green"></div>
+                        </div>
+                    </div>
+
+                    <div class="metric-group" style="margin-top: 4px;">
+                        <div class="metric-label">
+                            <span>Personal Strain</span>
+                            <span id="label-strain">2/16</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div id="bar-strain" class="progress-bar-fill fill-cyan"></div>
+                        </div>
+                    </div>
+
+                    <div class="attribute-grid" id="attribute-grid">
+                        <!-- Attributes populated dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Flagship Telemetry -->
+            <div class="panel">
+                <div class="panel-header">Flagship Status</div>
+                <div class="panel-content">
+                    <div id="ship-name" style="font-weight: 600; font-size: 1.05rem; color: var(--md-sys-color-primary); margin-bottom: 2px;">The Broken Sunrise</div>
+                    <div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 10px;">Imperial I-class Star Destroyer</div>
+                    
+                    <div class="metric-group">
+                        <div class="metric-label">
+                            <span>Hull Trauma</span>
+                            <span id="label-ship-hull">0/160</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div id="bar-ship-hull" class="progress-bar-fill fill-red"></div>
+                        </div>
+                    </div>
+
+                    <div class="metric-group" style="margin-top: 4px;">
+                        <div class="metric-label">
+                            <span>System Strain</span>
+                            <span id="label-ship-strain">0/80</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div id="bar-ship-strain" class="progress-bar-fill fill-yellow"></div>
+                        </div>
+                    </div>
+
+                    <div style="font-size: 0.8rem; margin-top: 10px; border-top: 1px solid var(--md-sys-color-outline-variant); padding-top: 12px; display: flex; flex-direction: column; gap: 4px;">
+                        <div style="display: flex; justify-content: space-between;"><span style="color: var(--md-sys-color-on-surface-variant)">Shields:</span> <span id="ship-shields" style="font-weight: 500;">--</span></div>
+                        <div style="display: flex; justify-content: space-between;"><span style="color: var(--md-sys-color-on-surface-variant)">Hyperdrive:</span> <span id="ship-hyperdrive" style="font-weight: 500;">--</span></div>
+                        <div style="display: flex; justify-content: space-between;"><span style="color: var(--md-sys-color-on-surface-variant)">Weapons:</span> <span id="ship-weapons" style="font-weight: 500;">--</span></div>
+                        <div style="display: flex; justify-content: space-between;"><span style="color: var(--md-sys-color-on-surface-variant)">Sensors:</span> <span id="ship-sensors" style="font-weight: 500;">--</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar Controls -->
+            <div class="control-panel">
+                <button class="btn" id="btn-map">🗺️ Sector Map</button>
+                <button class="btn" id="btn-ship">🚀 Ship Schematic</button>
+                <button class="btn" id="btn-settings">⚙️ Console Config</button>
+                <button class="btn" id="btn-save">💾 Manual Save</button>
+                <button class="btn btn-restart" id="btn-restart">🔄 Reset Campaign</button>
+            </div>
+        </div>
+
+        <!-- Center Console Display -->
+        <div class="console-container">
+            <!-- Scrollable Narrative Log -->
+            <div class="narrative-log" id="narrative-log">
+                <!-- Dialogue log history loaded here -->
+            </div>
+
+            <!-- Input Controls -->
+            <div class="input-area">
+                <input type="text" class="input-field" id="cmd-input" placeholder="Transmit tactical instructions..." autocomplete="off">
+                <button class="btn-send" id="btn-send">TRANSMIT</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Map Modal -->
+    <div class="overlay" id="overlay-map">
+        <div class="modal">
+            <div class="modal-header">
+                <div>Sector Orbital Telemetry Map</div>
+                <button class="modal-close" onclick="closeOverlay('overlay-map')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="vector-art" id="map-vector">Loading orbital scans...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeOverlay('overlay-map')">Dismiss Map</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ship Schematic Modal -->
+    <div class="overlay" id="overlay-ship">
+        <div class="modal">
+            <div class="modal-header" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <div style="display: flex; width: 100%; justify-content: space-between; align-items: center;">
+                    <div>Flagship Schematic &amp; Deck Layouts</div>
+                    <button class="modal-close" onclick="closeOverlay('overlay-ship')">&times;</button>
+                </div>
+                <div class="tab-bar" style="display: flex; gap: 8px; margin-top: 4px;">
+                    <button class="btn btn-tab active" id="btn-view-side" style="padding: 6px 12px; font-size: 0.8rem;">Side Cutaway</button>
+                    <button class="btn btn-tab" id="btn-view-top" style="padding: 6px 12px; font-size: 0.8rem;">Top Deck View</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="vector-art" id="ship-vector">Loading deck schematic...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeOverlay('overlay-ship')">Dismiss Schematic</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="overlay" id="overlay-settings">
+        <div class="modal" style="width: 480px;">
+            <div class="modal-header">
+                <div>Console Configurations</div>
+                <button class="modal-close" onclick="closeOverlay('overlay-settings')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="setting-url">Ollama Server URL</label>
+                    <input type="text" class="form-input" id="setting-url" placeholder="192.168.1.121:11434">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="setting-model">LLM Command Model</label>
+                    <input type="text" class="form-input" id="setting-model" placeholder="dante_dante159/gary_gigax:latest">
+                </div>
+                <div class="form-group">
+                    <label class="form-checkbox">
+                        <input type="checkbox" id="setting-dice">
+                        <span>Display Tabletop Dice Outcomes</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeOverlay('overlay-settings')">Cancel</button>
+                <button class="btn" id="btn-save-settings" style="background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border: none;">Apply Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Campaign Launcher Modal -->
+    <div class="overlay active" id="overlay-launcher">
+        <div class="modal" id="launcher-modal">
+            <div class="modal-header" style="justify-content: center;">
+                <div style="font-size: 1.2rem;">StarZork Operations Gateway</div>
+            </div>
+            <div class="modal-body" style="text-align: center; padding: 32px 24px;">
+                <p style="margin-bottom: 24px; font-size: 0.95rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.5;">Select a tactical operational mode to commence the simulation.</p>
+                <button class="btn btn-choice" id="btn-choice-resume" style="background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border: none;">Resume Active Campaign</button>
+                <button class="btn btn-choice" id="btn-choice-new" style="border-color: var(--md-sys-color-outline); color: var(--md-sys-color-primary);">Start New Campaign</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Set stardate clock
+        setInterval(() => {
+            const d = new Date();
+            const timeStr = d.toTimeString().split(' ')[0];
+            document.getElementById('meta-time').textContent = timeStr;
+        }, 1000);
+
+        // Core dynamic variables
+        let isTyping = false;
+
+        // Open/Close Overlays
+        function openOverlay(id) {
+            document.getElementById(id).classList.add('active');
+        }
+        function closeOverlay(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+
+        // Fetch Status from server
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                
+                // Update header title
+                document.getElementById('cmd-name').textContent = data.char_name;
+                document.getElementById('cmd-loc').textContent = data.location;
+                document.getElementById('cmd-credits').textContent = Number(data.credits).toLocaleString();
+
+                // Health/Wounds bar
+                const woundPct = Math.max(0, Math.min(100, ((data.max_wounds - data.wounds) / data.max_wounds) * 100));
+                document.getElementById('label-wounds').textContent = `${data.wounds}/${data.max_wounds}`;
+                document.getElementById('bar-wounds').style.width = `${woundPct}%`;
+
+                // Strain bar
+                const strainPct = Math.max(0, Math.min(100, ((data.max_strain - data.strain) / data.max_strain) * 100));
+                document.getElementById('label-strain').textContent = `${data.strain}/${data.max_strain}`;
+                document.getElementById('bar-strain').style.width = `${strainPct}%`;
+
+                // Ship Hull
+                const hullPct = Math.max(0, Math.min(100, ((data.ship_max_hull - data.ship_hull) / data.ship_max_hull) * 100));
+                document.getElementById('label-ship-hull').textContent = `${data.ship_hull}/${data.ship_max_hull}`;
+                document.getElementById('bar-ship-hull').style.width = `${hullPct}%`;
+
+                // Ship Strain
+                const shipStrainPct = Math.max(0, Math.min(100, ((data.ship_max_strain - data.ship_strain) / data.ship_max_strain) * 100));
+                document.getElementById('label-ship-strain').textContent = `${data.ship_strain}/${data.ship_max_strain}`;
+                document.getElementById('bar-ship-strain').style.width = `${shipStrainPct}%`;
+
+                // Ship extras
+                document.getElementById('ship-shields').textContent = data.ship_shields;
+                document.getElementById('ship-hyperdrive').textContent = data.ship_hyperdrive;
+                document.getElementById('ship-weapons').textContent = data.ship_weapons;
+                document.getElementById('ship-sensors').textContent = data.ship_sensors;
+
+                // Attributes
+                const grid = document.getElementById('attribute-grid');
+                grid.innerHTML = '';
+                for (const [attr, val] of Object.entries(data.attributes)) {
+                    const cleanName = attr.split(' (')[0];
+                    const card = document.createElement('div');
+                    card.className = 'attribute-card';
+                    card.innerHTML = `<div>${cleanName}</div><div>${val}</div>`;
+                    grid.appendChild(card);
+                }
+            } catch (err) {
+                console.error("Failed to fetch status updates:", err);
+            }
+        }
+
+        // Fetch logs
+        async function fetchHistory() {
+            try {
+                const res = await fetch('/api/history');
+                const history = await res.json();
+                const log = document.getElementById('narrative-log');
+                log.innerHTML = '';
+                
+                history.forEach(entry => {
+                    appendHistoryItem(entry.command, entry.html);
+                });
+                scrollToBottom();
+            } catch (err) {
+                console.error("Failed to fetch narrative history:", err);
+            }
+        }
+
+        function appendHistoryItem(command, htmlContent) {
+            const log = document.getElementById('narrative-log');
+            const el = document.createElement('div');
+            el.className = 'narrative-entry';
+            
+            let commandHTML = '';
+            if (command) {
+                commandHTML = `<div class="prompt-line">${command}</div>`;
+            }
+            
+            el.innerHTML = `${commandHTML}<div>${htmlContent}</div>`;
+            log.appendChild(el);
+        }
+
+        function scrollToBottom() {
+            const log = document.getElementById('narrative-log');
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // Click Suggested Actions directly
+        document.addEventListener('click', function(e) {
+            if (isTyping) return;
+            const target = e.target;
+            if (target.tagName === 'SPAN' && target.parentElement.className.includes('bold-yellow') && /^\d+\./.test(target.parentElement.innerText)) {
+                const optionText = target.parentElement.parentElement.innerText.replace(/^\d+\.\s*/, '').trim();
+                document.getElementById('cmd-input').value = optionText;
+                document.getElementById('cmd-input').focus();
+            } else if (target.className === 'bold-yellow' && /^\d+\./.test(target.innerText)) {
+                const optionText = target.parentElement.innerText.replace(/^\d+\.\s*/, '').trim();
+                document.getElementById('cmd-input').value = optionText;
+                document.getElementById('cmd-input').focus();
+            }
+        });
+
+        // Initialize connection
+        async function initializeGateway(choice) {
+            closeOverlay('overlay-launcher');
+            document.getElementById('meta-status').textContent = 'Initializing';
+            
+            try {
+                await fetch('/api/initialize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ choice: choice })
+                });
+                
+                document.getElementById('meta-status').textContent = 'Online';
+                
+                await fetchHistory();
+                await fetchStatus();
+            } catch (err) {
+                console.error(err);
+                alert("Launch error occurred. Check engine logs.");
+            }
+        }
+
+        // Launcher actions
+        document.getElementById('btn-choice-resume').addEventListener('click', () => initializeGateway(1));
+        document.getElementById('btn-choice-new').addEventListener('click', () => initializeGateway(2));
+
+        // Reusable API loading functions
+        async function loadSectorMap() {
+            try {
+                const res = await fetch('/api/map');
+                const data = await res.json();
+                document.getElementById('map-vector').innerHTML = data.html;
+            } catch (err) {
+                document.getElementById('map-vector').textContent = 'Error reading map sensors.';
+            }
+        }
+
+        async function loadShipSchematic() {
+            try {
+                const res = await fetch('/api/ship');
+                cachedShipData = await res.json();
+                renderShipView();
+            } catch (err) {
+                document.getElementById('ship-vector').textContent = 'Error mapping ship subsystems.';
+            }
+        }
+
+        // Submit Command
+        async function transmitCommand() {
+            if (isTyping) return;
+            const input = document.getElementById('cmd-input');
+            const cmd = input.value.trim();
+            if (!cmd) return;
+            
+            input.value = '';
+            
+            // Render the prompt instantly
+            appendHistoryItem(cmd, '<span style="color: var(--md-sys-color-on-surface-variant);">Processing transmission...</span><span class="cursor"></span>');
+            scrollToBottom();
+            
+            isTyping = true;
+            document.getElementById('btn-send').disabled = true;
+            
+            try {
+                const res = await fetch('/api/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: cmd })
+                });
+                const data = await res.json();
+                
+                // Remove processing marker
+                const log = document.getElementById('narrative-log');
+                log.removeChild(log.lastChild);
+                
+                // Set up typewriter streaming
+                const el = document.createElement('div');
+                el.className = 'narrative-entry';
+                el.innerHTML = `<div class="prompt-line">${cmd}</div><div id="typing-content"></div><span class="cursor"></span>`;
+                log.appendChild(el);
+                
+                await streamTypewriter(data.html, 'typing-content');
+                await fetchStatus();
+                
+                // Auto-refresh active views
+                if (document.getElementById('overlay-map').classList.contains('active')) {
+                    await loadSectorMap();
+                }
+                if (document.getElementById('overlay-ship').classList.contains('active')) {
+                    await loadShipSchematic();
+                }
+            } catch (err) {
+                console.error(err);
+                appendHistoryItem('', '<span class="red">SYSTEM ERROR: Command transmission timed out or failed to resolve. Check server log.</span>');
+            } finally {
+                isTyping = false;
+                document.getElementById('btn-send').disabled = false;
+                input.focus();
+            }
+        }
+
+        // Typewriter streaming effect
+        function streamTypewriter(htmlContent, targetId) {
+            return new Promise((resolve) => {
+                const container = document.getElementById(targetId);
+                
+                const temp = document.createElement('div');
+                temp.innerHTML = htmlContent;
+                const nodes = Array.from(temp.childNodes);
+                
+                let nodeIdx = 0;
+                container.innerHTML = '';
+                
+                function printNextNode() {
+                    if (nodeIdx >= nodes.length) {
+                        container.removeAttribute('id');
+                        const cursor = container.nextElementSibling;
+                        if (cursor && cursor.className === 'cursor') {
+                            cursor.remove();
+                        }
+                        resolve();
+                        return;
+                    }
+                    
+                    const node = nodes[nodeIdx];
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        const words = node.textContent.split(/(\s+)/);
+                        let wordIdx = 0;
+                        const textSpan = document.createTextNode('');
+                        container.appendChild(textSpan);
+                        
+                        function printNextWord() {
+                            if (wordIdx >= words.length) {
+                                nodeIdx++;
+                                printNextNode();
+                                return;
+                            }
+                            textSpan.textContent += words[wordIdx];
+                            wordIdx++;
+                            scrollToBottom();
+                            setTimeout(printNextWord, 6);
+                        }
+                        printNextWord();
+                    } else {
+                        const clone = node.cloneNode(false);
+                        container.appendChild(clone);
+                        
+                        const childWords = node.textContent ? node.textContent.split(/(\s+)/) : [];
+                        if (childWords.length > 0) {
+                            let childIdx = 0;
+                            function printNextChildWord() {
+                                if (childIdx >= childWords.length) {
+                                    nodeIdx++;
+                                    printNextNode();
+                                    return;
+                                }
+                                clone.textContent += childWords[childIdx];
+                                childIdx++;
+                                scrollToBottom();
+                                setTimeout(printNextChildWord, 6);
+                            }
+                            printNextChildWord();
+                        } else {
+                            nodeIdx++;
+                            printNextNode();
+                        }
+                    }
+                }
+                
+                printNextNode();
+            });
+        }
+
+        document.getElementById('btn-send').addEventListener('click', transmitCommand);
+        document.getElementById('cmd-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') transmitCommand();
+        });
+
+        // Map button
+        document.getElementById('btn-map').addEventListener('click', () => {
+            openOverlay('overlay-map');
+            document.getElementById('map-vector').textContent = 'Analyzing sector arrays...';
+            loadSectorMap();
+        });
+
+        let cachedShipData = null;
+        let activeShipView = 'side'; // 'side' or 'top'
+
+        function renderShipView() {
+            if (!cachedShipData) return;
+            const container = document.getElementById('ship-vector');
+            if (activeShipView === 'side') {
+                container.innerHTML = cachedShipData.side_html;
+            } else {
+                container.innerHTML = cachedShipData.top_html;
+            }
+        }
+
+        // Setup tab listeners once
+        document.getElementById('btn-view-side').addEventListener('click', () => {
+            activeShipView = 'side';
+            document.getElementById('btn-view-side').classList.add('active');
+            document.getElementById('btn-view-top').classList.remove('active');
+            renderShipView();
+        });
+
+        document.getElementById('btn-view-top').addEventListener('click', () => {
+            activeShipView = 'top';
+            document.getElementById('btn-view-top').classList.add('active');
+            document.getElementById('btn-view-side').classList.remove('active');
+            renderShipView();
+        });
+
+        // Ship schematic button
+        document.getElementById('btn-ship').addEventListener('click', () => {
+            openOverlay('overlay-ship');
+            document.getElementById('ship-vector').textContent = 'Mapping hull structure...';
+            loadShipSchematic();
+        });
+
+        // Save button
+        document.getElementById('btn-save').addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/save', { method: 'POST' });
+                const data = await res.json();
+                appendHistoryItem('', `<span style="color: var(--md-sys-color-primary); font-weight: 500;">${data.message}</span>`);
+                scrollToBottom();
+            } catch (err) {
+                alert("Failed to save session state.");
+            }
+        });
+
+        // Restart button
+        document.getElementById('btn-restart').addEventListener('click', () => {
+            if (confirm("Reset current campaign? All state files and logs will be restored to defaults.")) {
+                openOverlay('overlay-launcher');
+            }
+        });
+
+        // Config settings
+        document.getElementById('btn-settings').addEventListener('click', async () => {
+            openOverlay('overlay-settings');
+            try {
+                const res = await fetch('/api/settings');
+                const data = await res.json();
+                document.getElementById('setting-url').value = data.OLLAMA_URL;
+                document.getElementById('setting-model').value = data.PARSER_MODEL;
+                document.getElementById('setting-dice').checked = data.SHOW_DICE_CHECKS;
+            } catch (err) {
+                console.error("Failed to read current config:", err);
+            }
+        });
+
+        document.getElementById('btn-save-settings').addEventListener('click', async () => {
+            const url = document.getElementById('setting-url').value.trim();
+            const model = document.getElementById('setting-model').value.trim();
+            const dice = document.getElementById('setting-dice').checked;
+            
+            try {
+                const res = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ OLLAMA_URL: url, PARSER_MODEL: model, SHOW_DICE_CHECKS: dice })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    closeOverlay('overlay-settings');
+                    appendHistoryItem('', '<span style="color: var(--md-sys-color-primary); font-weight: 500;">⚙️ Console configurations applied and saved successfully.</span>');
+                    scrollToBottom();
+                }
+            } catch (err) {
+                alert("Failed to save new configuration options.");
+            }
+        });
+    </script>
+</body>
+</html>

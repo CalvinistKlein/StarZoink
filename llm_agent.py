@@ -5,8 +5,8 @@ import requests
 
 # Default configuration
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
-DEFAULT_PARSER_MODEL = "qwen2.5:3b"
-DEFAULT_NARRATOR_MODEL = "qwen2.5:3b"
+DEFAULT_PARSER_MODEL = "dante_dante159/gary_gigax:latest"
+DEFAULT_NARRATOR_MODEL = "dante_dante159/gary_gigax:latest"
 
 class LLMAgent:
     def __init__(self, config_path=None):
@@ -123,13 +123,14 @@ class LLMAgent:
         system_instruction = (
             "You are the DungeonOfTheStars Parser & Judge. Your job is to translate the user's natural language command "
             "into structured actions while validating that the command is localized, immediate, and reasonable.\n\n"
-            "CRITICAL VALIDATION RULES:\n"
-            "- Reject broad, game-skipping commands like 'win the game', 'destroy the rebels instantly', 'know where the base is', "
-            "or 'kill everyone'. Mark these as valid=false, and provide an in-universe rejection reason explaining that such broad "
-            "actions are strategic objectives that require operational steps.\n"
-            "- Reject physically impossible commands based on the location (e.g., trying to open the safe in quarters while standing on the bridge).\n"
+            "CRITICAL VALIDATION RULES - ABSOLUTE PLAYER AGENCY:\n"
+            "- The Commodore has absolute tactical authority and freedom of action. NEVER reject commands like ordering troopers to arrest officers, placing crew in the brig, executing traitors, shooting bridge officers, or making shipwide announcements. Mark these as valid=true and map appropriate engine_mutations (such as changing status to Arrested/KIA or moving NPCs to 'brig').\n"
+            "- ONLY reject literally game-breaking meta-commands like 'win the game instantly' or 'magically know where the secret rebel base is without scanning'. Everything else in the game world is permitted!\n"
+            "- Capital ships (Star Destroyers) cannot land on planets or enter atmospheric flight. If ordered to land a Star Destroyer, set valid=true but mark it as a hazardous orbital descent where drop-ships/shuttles must be deployed instead, or trigger structural warning alarms.\n"
             "- Accept long-term actions (like hyperdrive travel or background engineering repair tasks) but mark them as valid. "
-            "Set appropriate time elapsed (minutes/hours) and list them under background_tasks if they occur in the background.\n\n"
+            "Set appropriate time elapsed (minutes/hours) and list them under background_tasks if they occur in the background.\n"
+            "- DYNAMIC TRAVEL & SECTORS: If the player commands the ship or themselves to travel to a new planet, room, orbit, sector, or distress signal that is not listed in the location database, set transit=true, choose a unique snake_case target_location_id (e.g., 'sworinta_v' or 'rebel_outpost'), and provide a clean name in target_location_name (e.g., 'Orbit of Sworinta V' or 'Rebel Comm Outpost'). The system will automatically register and generate it!\n"
+            "- FLAGSHIP MOVEMENT & SECTOR TRANSIT: If the player orders the Star Destroyer (The Broken Sunrise) to change sectors or jump to a new orbit/coordinates (e.g., 'move the ship to the Asteroid Field', 'hyperspace jump to Sith Beacon', or 'orbit Sworinta V'), you MUST add a custom state update in engine_mutations: \"custom_state_updates\": {\"The_Broken_Sunrise.Current Sector\": \"New Sector Name\"} (e.g., \"Deep Rim Asteroid Field\", \"Sith Beacon Anomaly\", or \"Sworinta V Orbit\") so the ship's position updates on the tactical map!\n\n"
             "OUTPUT FORMAT:\n"
             "You MUST respond ONLY with a valid JSON block matching this structure:\n"
             "{\n"
@@ -143,7 +144,8 @@ class LLMAgent:
             "  },\n"
             "  \"movement\": {\n"
             "    \"transit\": false,\n"
-            "    \"target_location_id\": \"quarters\" | \"hangar\" | ... | null\n"
+            "    \"target_location_id\": \"quarters\" | \"hangar\" | ... | null,\n"
+            "    \"target_location_name\": \"Name of new location\" | null\n"
             "  },\n"
             "  \"time_elapsed_minutes\": 1,\n"
             "  \"background_tasks\": [],\n"
@@ -204,15 +206,33 @@ class LLMAgent:
             "You are the DungeonOfTheStars Narrator, writing descriptions for a Star Wars themed tactical text adventure.\n"
             "Write narrative prose in a direct, gritty, and tactical style. Keep the tone professional, like an Imperial Navy logs report. Do not use flowery, overly dramatic, or verbose language.\n"
             "Incorporate FFG dice results (Success/Failure, Advantage/Threat, Triumph/Despair) into in-universe outcomes.\n"
-            "CRITICAL RULES:\n"
-            "- Your narrative MUST directly address and resolve the player's immediate command or query. If the player asks a question, queries a database, or talks to an NPC, you must write the response, dialogue, or information retrieved within your prose.\n"
+            "CRITICAL RULES - DIRECT EXECUTION & DIALOGUE:\n"
+            "- DIRECT RESPONSE AND DIALOGUE: Your narrative MUST directly address and answer the player's immediate statement, command, or query. If the player asks a question to Kross or any NPC, that NPC MUST answer directly in dialogue. Never write a generic response that ignores or skips over the dialogue. If the player says something, NPCs must respond directly to what was said.\n"
+            "- The Commodore's words, announcements, physical attacks, and orders are ABSOLUTE CANON. Never retcon or ignore them. If the Commodore fires a weapon at someone, do not make the NPC 'calmly step aside' or lecture the Commodore unless a mechanical dice failure occurred. If the Commodore gives an order or makes an announcement, NPCs must react realistically without inventing fake messages from Central Command that contradict the player!\n"
+            "- DIALOGUE SPEAKER HEADERS: Whenever any NPC speaks, their dialogue MUST be preceded by an uppercase header on its own line (for example, <COMMANDER VANDAR KROSS> on its own line, followed by the dialogue on the next line: \"Shields holding at eighty percent, sir!\").\n"
+            "- SECRECY OF THE BEACON: The crew, officers (including Commander Kross), and all external factions believe the signal is an ancient distress call from a derelict warship. Only the Commodore (player) and the Inquisitor know it is an ancient Sith beacon. Ensure all dialogues and crew reactions reflect this secrecy (e.g., crew members speaking about salvaging a derelict warship, while the Inquisitor speaks to you privately or via encrypted channels about the true nature of the Sith artifact).\n"
+            "- Never mention Earth or real-world geography/history.\n"
             "- Do not repeat background information or location descriptions if they have not changed. Focus on the action itself and answering the query.\n"
             "- The story characters (and narration) must NEVER roll dice, mention dice, refer to dice, see stats, or mention tabletop mechanics. All dice rolls and rules happen outside the narrative world. Translate the dice outcomes purely into environmental events, mechanical failures, tactical changes, or physical reactions.\n"
             "- Advantage/Threat represent positive/negative side-effects. Triumph is a major boon, Despair is a major complication.\n"
-            "Keep descriptions very concise (1-2 short paragraphs max)."
+            "Keep descriptions concise and engaging (1-2 short paragraphs max)."
         )
-        
-        prompt = (
+        # Load campaign plot if available to guide acts and narrative branches
+        campaign_context = ""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        campaign_file = os.path.join(base_dir, "Game_info/campaign_plot.md")
+        if os.path.exists(campaign_file):
+            try:
+                with open(campaign_file, "r", encoding="utf-8") as f:
+                    campaign_context = f.read()
+            except:
+                pass
+                
+        prompt = ""
+        if campaign_context:
+            prompt += f"CAMPAIGN PLOT GUIDE & ACT OUTLINE:\n{campaign_context}\n\n"
+            
+        prompt += (
             f"LOCATION:\n{json.dumps(location_data, indent=2)}\n\n"
             f"COMMAND:\n\"{command}\"\n\n"
             f"ACTION RESULT / STATE MUTATIONS / DICE ROLL:\n{json.dumps(action_result, indent=2)}\n\n"
@@ -333,3 +353,71 @@ class LLMAgent:
                 f"*   **Willpower (WIL):** 2\n"
                 f"*   **Presence (PR):** 2\n"
             )
+
+    def generate_initial_intro(self, location_data):
+        """
+        Generates a long, highly detailed atmospheric introduction prose for a new game session.
+        """
+        system_instruction = (
+            "You are the DungeonOfTheStars Narrator. Your task is to write a highly detailed, dramatic, and atmospheric "
+            "introductory prose (3-5 paragraphs) to start the campaign.\n"
+            "Establish a gritty, militaristic, and ominous tone suited for an Imperial Navy commander in the Outer Rim.\n"
+            "Do not output any JSON, markdown headers, or suggested actions. Just write the descriptive narrative prose directly."
+        )
+        campaign_context = ""
+        plotbasis_context = ""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        campaign_file = os.path.join(base_dir, "Game_info/campaign_plot.md")
+        if os.path.exists(campaign_file):
+            try:
+                with open(campaign_file, "r", encoding="utf-8") as f:
+                    campaign_context = f.read()
+            except:
+                pass
+                
+        plotbasis_file = os.path.join(base_dir, "plotbasis.md")
+        if os.path.exists(plotbasis_file):
+            try:
+                with open(plotbasis_file, "r", encoding="utf-8") as f:
+                    plotbasis_context = f.read()
+            except:
+                pass
+
+        prompt = ""
+        if campaign_context:
+            prompt += f"CAMPAIGN PLOT GUIDE:\n{campaign_context}\n\n"
+        if plotbasis_context:
+            prompt += f"PLOT BASIS / SETTING PREMISE:\n{plotbasis_context}\n\n"
+            
+        prompt += (
+            f"LOCATION DATA:\n{json.dumps(location_data, indent=2)}\n\n"
+            "Generate the opening narration now. It must be highly detailed and atmospheric (3-5 paragraphs), describing "
+            "the bridge of the Star Destroyer The Broken Sunrise, the toxic green gas giant Sworinta IV masking the ship, "
+            "and the weak ping of the ancient Sith beacon resonating from deep space. "
+            "CRITICAL PLOT POINT: The crew and officers (including Commander Kross) believe the signal is an ancient "
+            "distress call from a derelict warship. Only the Commodore (you) and the assigned Inquisitor know it is a Sith beacon. "
+            "Describe the junior sensor officer reporting it as a warship distress call, and the subtle silent reaction/exchange "
+            "between you and the Inquisitor who stands in the shadows of the bridge watching you."
+        )
+        try:
+            return self.query(prompt, system_instruction, is_parser=False).strip()
+        except Exception as e:
+            # Fallback if connection fails
+            return (
+                "You stand on the command bridge of the Imperial I-class Star Destroyer *The Broken Sunrise*, "
+                "staring out through the reinforced viewports into the swirling green depths of Sworinta IV. "
+                "The gas giant's intense radiation fields wash over the massive hull, scrambling long-range scans and "
+                "cloaking your presence from any prying eyes in the sector. You are the absolute authority here—given the rank of "
+                "Commodore by the Emperor himself—commanding this upgraded capital ship with its experimental weapons and Class 1.5 hyperdrive.\n\n"
+                "But you are not alone in your command. Standing near the holonet alcove, the silent, cloaked figure of the Imperial Inquisitor "
+                "assigned to your vessel watches. Officially, they are here to assist with the recovery of ancient Sith artifacts. Unofficially, "
+                "their hand rests near their lightsaber, their cold eyes studying your every command decision.\n\n"
+                "A soft tone chiming from the sensor pit breaks the silence. A junior deck officer looks up, nervous. "
+                "\"Commodore Heros, sir. We've isolated the transmission. It's a weak, ancient distress call originating from the Deep Rim sector... "
+                "preliminary telemetry suggests an old derelict warship signal.\"\n\n"
+                "Beside you, the Inquisitor's gaze shifts to meet yours. Beneath their dark hood, a thin, knowing smile forms. "
+                "To the crew, this is standard scrap metal and empty distress codes. But to those attuned to the dark side—and to you, "
+                "who received the Emperor's private briefings—the signal resonates with a cold, distinct dark-side vibration. The Sith beacon has active power.\n\n"
+                "Commander Kross stands nearby, awaiting your command."
+            )
+

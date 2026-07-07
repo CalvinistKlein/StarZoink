@@ -1,5 +1,6 @@
 {
   "OLLAMA_URL": "192.168.1.121:11434",
-  "PARSER_MODEL": "huihui_ai/qwen2.5-abliterate:3b",
-  "NARRATOR_MODEL": "huihui_ai/qwen2.5-abliterate:3b"
+  "PARSER_MODEL": "dante_dante159/gary_gigax:latest",
+  "NARRATOR_MODEL": "dante_dante159/gary_gigax:latest",
+  "SHOW_DICE_CHECKS": false
 }

@@ -27,6 +27,22 @@ class DungeonOfTheStarsEngine:
         self.skills_map = self._load_skills_map()
         self.history = self._load_history()
         self.chronicle = self._load_chronicle()
+        self.active_player_file = PLAYER_FILE
+        self.initial_narrative = None
+
+    def get_initial_narrative(self):
+        if not self.initial_narrative:
+            try:
+                player_data = MarkdownDB.read_file(self.active_player_file)
+                loc_name = player_data["fields"].get("Current Location", "Bridge")
+                loc_id = self.get_current_location_id(loc_name)
+                loc_data = self.locations.get(loc_id, self.locations.get("bridge"))
+                self.initial_narrative = self.llm.generate_initial_intro(loc_data)
+            except Exception:
+                # Omit errors and let it fallback inside the llm agent
+                pass
+        return self.initial_narrative
+
         
     def _load_locations(self):
         """Parses Game_info/locations.md into a structured room registry."""
@@ -144,7 +160,7 @@ class DungeonOfTheStarsEngine:
             return rejection
 
         # 2. Read current player state
-        player_data = MarkdownDB.read_file(PLAYER_FILE)
+        player_data = MarkdownDB.read_file(self.active_player_file)
         
         # 3. Resolve location
         loc_name = player_data["fields"].get("Current Location", "Bridge")
@@ -224,7 +240,7 @@ class DungeonOfTheStarsEngine:
         roll_results = None
         state_updates = {"fields": {}, "checklists": {}}
         
-        skill_check = parsed.get("skill_check", {})
+        skill_check = parsed.get("skill_check") or {}
         if skill_check.get("required", False):
             skill_name = skill_check.get("skill")
             difficulty = skill_check.get("difficulty", 2)
@@ -279,7 +295,7 @@ class DungeonOfTheStarsEngine:
                 pass
                 
         # 8. Process state updates and mutations
-        mutations = parsed.get("engine_mutations", {})
+        mutations = parsed.get("engine_mutations") or {}
         
         # Check health/wounds modifications
         wounds_change = mutations.get("wounds_change", 0)
@@ -298,39 +314,70 @@ class DungeonOfTheStarsEngine:
             state_updates["fields"]["Credits"] = str(new_credits)
             
         # Check location movement
-        movement = parsed.get("movement", {})
+        movement = parsed.get("movement") or {}
         if movement.get("transit", False):
             target_id = movement.get("target_location_id")
-            if target_id in self.locations:
-                target_loc = self.locations[target_id]
-                state_updates["fields"]["Current Location"] = target_loc["name"]
-                # Update current location variables for narration
-                loc_data = target_loc
+            if target_id:
+                if target_id not in self.locations:
+                    target_name = movement.get("target_location_name") or target_id.replace("_", " ").title()
+                    # Append new location to Game_info/locations.md
+                    new_loc_str = f"\n\n---\n\n## {target_name}\n"
+                    new_loc_str += f"*   **Location ID:** `{target_id}`\n"
+                    new_loc_str += f"*   **Name:** {target_name}\n"
+                    new_loc_str += f"*   **Exits:**\n"
+                    # Add current location as exit
+                    curr_loc_name = player_data["fields"].get("Current Location", "Bridge")
+                    curr_loc_id = self.get_current_location_id(curr_loc_name)
+                    if curr_loc_id:
+                        new_loc_str += f"    *   `{curr_loc_id}` (via Flight Vector/Transit)\n"
+                    new_loc_str += f"*   **Description:** A newly discovered or generated location: {target_name}.\n"
+                    new_loc_str += f"*   **NPCs present:** None\n"
+                    new_loc_str += f"*   **Interactable Elements:** None\n"
+                    
+                    loc_file = os.path.join(GAME_INFO_DIR, "locations.md")
+                    try:
+                        with open(loc_file, "a", encoding="utf-8") as f:
+                            f.write(new_loc_str)
+                        # Reload locations
+                        self.locations = self._load_locations()
+                    except Exception as e:
+                        print(f"Error dynamically writing location: {e}")
                 
-        # Apply custom state updates (like opening safes or setting subsystems)
+                if target_id in self.locations:
+                    target_loc = self.locations[target_id]
+                    state_updates["fields"]["Current Location"] = target_loc["name"]
+                    # Update current location variables for narration
+                    loc_data = target_loc
+                
+        # Apply custom state updates (like opening safes, relocating NPCs, or setting subsystems)
         custom_updates = mutations.get("custom_state_updates", {})
         for k, v in custom_updates.items():
-            # If it matches a ship manifest file, update that file
-            # For simplicity in demo, we check if key has a dot pointing to a file
-            # e.g., "The_Waining_Moon.Hyperdrive": "Offline"
             if "." in k:
-                ship_name, field = k.split(".", 1)
-                # Find ship file recursively in ShipData
-                ship_file = self._find_ship_file(ship_name)
+                entity_name, field = k.split(".", 1)
+                # 1. Check if entity is an NPC
+                npc_file = self._find_npc_file(entity_name)
+                if npc_file:
+                    if "location" in field.lower():
+                        target_loc_id = self.get_current_location_id(str(v))
+                        self._relocate_npc(entity_name, target_loc_id)
+                        MarkdownDB.write_file(npc_file, {"fields": {"Current Location": str(v)}})
+                    else:
+                        MarkdownDB.write_file(npc_file, {"fields": {field: str(v)}})
+                    continue
+                # 2. Check if entity is a ship
+                ship_file = self._find_ship_file(entity_name)
                 if ship_file:
-                    # Is it a status check?
                     if field.startswith("Subsystem Status."):
                         sub_field = field.split(".")[1]
-                        MarkdownDB.write_file(ship_file, {"checklists": {sub_field: v}})
+                        MarkdownDB.write_file(ship_file, {"checklists": {sub_field: str(v)}})
                     else:
-                        MarkdownDB.write_file(ship_file, {"fields": {field: v}})
+                        MarkdownDB.write_file(ship_file, {"fields": {field: str(v)}})
             else:
-                # Add to player fields
                 state_updates["fields"][k] = str(v)
                 
         # Write player sheet changes to disk
         if state_updates["fields"] or state_updates["checklists"]:
-            MarkdownDB.write_file(PLAYER_FILE, state_updates)
+            MarkdownDB.write_file(self.active_player_file, state_updates)
             
         # 9. Advance Clock / Turn state
         # In history, log time advancement
@@ -346,6 +393,9 @@ class DungeonOfTheStarsEngine:
         }
         
         narration = self.llm.generate_narration(player_command, action_outcome, loc_data, history_context)
+        
+        # 10a. Scan narration for dynamic stats and update files in real-time
+        self._parse_narrative_for_stats(narration)
         
         # 10b. Update Campaign Chronicle
         turn_bullet = self.llm.summarize_turn(player_command, narration, state_updates)
@@ -363,6 +413,65 @@ class DungeonOfTheStarsEngine:
         self._save_history()
         
         return narration
+
+    def _parse_narrative_for_stats(self, narration):
+        """Scans the narration text for dynamic stat updates (like hull trauma, system strain, wounds) and applies them to the correct entity."""
+        import re
+        ship_file = self._find_ship_file("The_Broken_Sunrise")
+        player_file = self.active_player_file
+        
+        # Split narration into sentences to evaluate context properly
+        sentences = re.split(r'[.!?\n]', narration)
+        
+        for sentence in sentences:
+            sentence_lower = sentence.lower()
+            if not sentence_lower.strip():
+                continue
+                
+            # 1. Check for minimal power/hull
+            if "minimal hull" in sentence_lower or "hull is minimal" in sentence_lower:
+                if ship_file and os.path.exists(ship_file):
+                    MarkdownDB.write_file(ship_file, {"fields": {"Hull Trauma": "128"}})
+            if "minimal power" in sentence_lower or "power is minimal" in sentence_lower:
+                if ship_file and os.path.exists(ship_file):
+                    MarkdownDB.write_file(ship_file, {"fields": {"System Strain": "64"}})
+
+            # 2. Parse Hull integrity %
+            match_hull_pct = re.search(r'hull integrity at\s+(\d+)\s*(?:percent|%)', sentence, re.IGNORECASE)
+            if match_hull_pct and ship_file and os.path.exists(ship_file):
+                pct = int(match_hull_pct.group(1))
+                trauma = int(160 * (100 - pct) / 100)
+                MarkdownDB.write_file(ship_file, {"fields": {"Hull Trauma": str(trauma)}})
+
+            # 3. Parse Hull damage/trauma
+            match_hull_val = re.search(r'(?:sustained|has|with)\s+(\d+)\s*(?:points of\s+)?(?:hull damage|hull trauma)', sentence, re.IGNORECASE)
+            if not match_hull_val:
+                match_hull_val = re.search(r'hull trauma\s+(?:is|at|of)\s+(\d+)', sentence, re.IGNORECASE)
+            if match_hull_val and ship_file and os.path.exists(ship_file):
+                trauma = int(match_hull_val.group(1))
+                MarkdownDB.write_file(ship_file, {"fields": {"Hull Trauma": str(trauma)}})
+
+            # 4. Parse System Strain (checks context)
+            match_strain = re.search(r'(?:sustained|has|at|of|by)\s+(\d+)\s*(?:points of\s+)?system strain', sentence, re.IGNORECASE)
+            if not match_strain:
+                match_strain = re.search(r'system strain\s+(?:is|at|of)\s+(\d+)', sentence, re.IGNORECASE)
+            if match_strain:
+                strain = int(match_strain.group(1))
+                # If the sentence mentions the ship, apply to ship. Else apply to player.
+                if any(w in sentence_lower for w in ("ship", "flagship", "sunrise", "vessel", "cruiser", "command tower", "reactor", "shield", "engines")):
+                    if ship_file and os.path.exists(ship_file):
+                        MarkdownDB.write_file(ship_file, {"fields": {"System Strain": str(strain)}})
+                else:
+                    if player_file and os.path.exists(player_file):
+                        MarkdownDB.write_file(player_file, {"fields": {"System Strain": str(strain)}})
+
+            # 5. Parse Wounds / Health
+            match_wounds = re.search(r'(?:sustained|has)\s+(\d+)\s*wounds', sentence, re.IGNORECASE)
+            if not match_wounds:
+                match_wounds = re.search(r'wounds\s+(?:is|at|of)\s+(\d+)', sentence, re.IGNORECASE)
+            if match_wounds and player_file and os.path.exists(player_file):
+                wounds = int(match_wounds.group(1))
+                MarkdownDB.write_file(player_file, {"fields": {"Wounds (Health)": str(wounds)}})
 
     def _find_ship_file(self, ship_name):
         """Searches recursively for a ship file by its name."""
@@ -401,12 +510,24 @@ class DungeonOfTheStarsEngine:
                 print(f"Warning: Failed to save campaign chronicle: {e}")
 
     def _find_npc_file(self, npc_name):
-        """Searches for an NPC file in the GameData folders."""
+        """Searches for an NPC file in the GameData folders using fuzzy/partial name matching."""
+        search_clean = npc_name.lower().replace(" ", "").replace("_", "").replace(".", "")
         for folder in ["Player Data/Command Staff", "NPC Data"]:
-            path = os.path.join(GAME_DATA_DIR, folder, f"{npc_name}.md")
-            if os.path.exists(path):
-                return path
+            dir_path = os.path.join(GAME_DATA_DIR, folder)
+            if not os.path.exists(dir_path):
+                continue
+            for f in os.listdir(dir_path):
+                if f.endswith(".md"):
+                    f_clean = f.lower().replace(".md", "").replace(" ", "").replace("_", "").replace(".", "")
+                    if search_clean in f_clean or f_clean in search_clean:
+                        return os.path.join(dir_path, f)
         return None
+
+    def _npc_name_matches(self, n1, n2):
+        """Helper to check if two NPC name strings match fuzzily."""
+        c1 = n1.lower().replace(" ", "").replace("_", "").replace(".", "")
+        c2 = n2.lower().replace(" ", "").replace("_", "").replace(".", "")
+        return c1 in c2 or c2 in c1
 
     def _register_npc_to_location(self, loc_id, npc_name_clean):
         """Appends the NPC to the specified location in Game_info/locations.md."""
@@ -441,7 +562,7 @@ class DungeonOfTheStarsEngine:
                 parts = line_str.split("present:**")
                 npcs_raw = parts[1].strip()
                 npcs = [n.replace("`", "").strip() for n in npcs_raw.split(",") if n.strip()]
-                if display_name not in npcs:
+                if not any(self._npc_name_matches(n, display_name) for n in npcs):
                     npcs.append(display_name)
                     new_npcs_str = ", ".join(f"`{n}`" for n in npcs)
                     indent = line[:line.find("*")]
@@ -455,6 +576,61 @@ class DungeonOfTheStarsEngine:
                 with open(loc_file, "w", encoding="utf-8") as f:
                     f.writelines(new_lines)
                 # Reload locations registry
+                self.locations = self._load_locations()
+            except Exception as e:
+                print(f"Warning: Failed to write locations file: {e}")
+
+    def _relocate_npc(self, npc_name_clean, new_loc_id):
+        """Relocates an NPC from their current location to new_loc_id in Game_info/locations.md."""
+        loc_file = os.path.join(GAME_INFO_DIR, "locations.md")
+        if not os.path.exists(loc_file):
+            return
+            
+        try:
+            with open(loc_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as e:
+            print(f"Warning: Failed to read locations file: {e}")
+            return
+            
+        new_lines = []
+        display_name = npc_name_clean.replace("_", " ")
+        target_loc = self.locations.get(new_loc_id)
+        target_sec_name = target_loc["name"].lower() if target_loc else ""
+        
+        in_target_section = False
+        npc_modified = False
+        
+        for line in lines:
+            line_str = line.strip()
+            if line_str.startswith("## "):
+                sec_name = line_str[3:].strip().lower()
+                in_target_section = (sec_name == target_sec_name)
+                
+            if line_str.startswith("*   **NPCs present:**"):
+                parts = line_str.split("present:**")
+                npcs_raw = parts[1].strip()
+                npcs = [n.replace("`", "").strip() for n in npcs_raw.split(",") if n.strip()]
+                
+                if in_target_section:
+                    if not any(self._npc_name_matches(n, display_name) for n in npcs):
+                        npcs.append(display_name)
+                        npc_modified = True
+                else:
+                    if any(self._npc_name_matches(n, display_name) for n in npcs):
+                        npcs = [n for n in npcs if not self._npc_name_matches(n, display_name)]
+                        npc_modified = True
+                        
+                new_npcs_str = ", ".join(f"`{n}`" for n in npcs)
+                indent = line[:line.find("*")]
+                line = f"{indent}*   **NPCs present:** {new_npcs_str}\n" if npcs else f"{indent}*   **NPCs present:** \n"
+                
+            new_lines.append(line)
+            
+        if npc_modified:
+            try:
+                with open(loc_file, "w", encoding="utf-8") as f:
+                    f.writelines(new_lines)
                 self.locations = self._load_locations()
             except Exception as e:
                 print(f"Warning: Failed to write locations file: {e}")

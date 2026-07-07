@@ -6,7 +6,7 @@
 | Metric | Maximum | Current Value |
 | :--- | :---: | :---: |
 | **Wounds (Health)** | 0 | [ ] |
-| **System Strain** | 16 | [ ] |
+| **System Strain** | 16 | [ 2 ] |
 | **Soak Value** | 3 | [ ] |
 | **Defense - Melee** | 0 | [ ] |
 | **Defense - Ranged** | 1 | [ ] |
@@ -14,7 +14,7 @@
 ### Experience & Progression
 *   **Total XP Earned:** [0]
 *   **Available XP:** [0]
-*   **Current Location:** Bridge, *The Broken Sunrise* (Orbiting Sworinta IV)
+*   **Current Location:** 1. Bridge of The Broken Sunrise
 
 ---
 
@@ -71,4 +71,4 @@
 *   **Imperial Code Cylinder / Rank Cylinder:** Access code storage & authentication
 *   **Military-grade Datapad:** Navigational charts & task force logs
 *   **Personal Comlink:** Encrypted connection to fleet channels
-*   **Credits:** [1000000]
+*   **Credits:** [0]

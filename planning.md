@@ -45,7 +45,7 @@ This document outlines the conceptual design, feasibility analysis, system archi
 *   **Analysis:** 
     *   Using Python with the **`Textual`** or **`Rich`** libraries, we can build a layout with dedicated panels:
         *   A main text log for the narrative.
-        *   A sidebar showing player stats, inventory (loaded from file), and a dynamic ASCII map.
+        *   A sidebar showing player stats, inventory (loaded from file), and controls to launch dynamic, interactive vector/SVG overlays (Sector Map and Ship Schematic).
         *   Visual health bars, shield meters, or item weights represented as text-based progress bars or graphs (similar to `btop`).
         *   A sleek, command-line input box at the bottom.
 
@@ -127,7 +127,7 @@ To validate the framework, the demo will implement the opening sequence of Zork 
 
 ### Phase 3: Terminal UI (Textual / Rich)
 *   Build the `btop`-style visual framework.
-*   Include panels for room visuals (ASCII art), status bar (location, moves, score), inventory sidebar (with weight meters), and the input terminal.
+*   Include modals for high-fidelity vector graphics (Sector Map & Ship Schematic), status indicators (location, wounds, strain), inventory lists, and the input console.
 
 ### Phase 4: Semantic Command Parser & Narrator
 *   Create prompt templates for the local LLM:

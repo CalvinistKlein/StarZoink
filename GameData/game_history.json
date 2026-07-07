@@ -1,24 +1,41 @@
 [
   {
     "turn": 1,
-    "timestamp": "09:12:13",
-    "player_command": "Fleet status update",
+    "timestamp": "10:37:42",
+    "player_command": "Perform a wide scan for pirate vessels and keep shields primed. Also scan the beacon for details",
     "dice_roll": null,
     "state_changes": {
-      "fields": {},
+      "fields": {
+        "Credits": "0",
+        " shields primed": "True"
+      },
       "checklists": {}
     },
-    "narrative": "Commander Vandar Kross tightens his grip on the tactical console, his fingers dancing over the holographic controls. Lt Cmdr Aris Thorne glances up from her display of Sworinta IV's atmosphere and terrain data. \"Current status,\" he demands.\n\nThe bridge buzzes with the steady hum of systems at full power. Kross leans in closer to scrutinize the green tactical displays, his eyes scanning for any anomalies amidst the normalcy. He rolls a die into the sand-filled trench beneath the bridge - **Advantage (4)**. The glow of the dice is caught by the green light illuminating the room, casting long shadows.\n\nThorne checks her readouts, nodding slightly at Kross' attentiveness. \"Sworinta IV's atmospheric conditions are stable,\" she reports, \"no significant shifts in weather patterns.\"\n\nThe tension on the bridge eases minutely as they confirm that the mission is proceeding according to plan. However, their peace is short-lived as a sudden **Threat (2)** appears - a ripple of static and static crackles through the comms system. A faint transmission from outlying vessels drifts in.\n\n\"Admiral on board? This is Star Destroyer *The Broken Sunrise*! Over.\" The transmission carries authority but also hints at urgency, prompting Kross to direct an immediate reply: \"Affirmative, we are here. Brief me,\" he barks into the comms array.\n\nThe bridge hums with activity as they prepare for incoming orders or instructions from the Admiral in question. But before any formal responses can be sent, the static fades away, and no more transmissions come through - leaving the bridge crew uncertain but prepared to act on whatever new information is forthcoming."
+    "narrative": "**Bridge of The Broken Sunrise**\n\nThe dimly lit bridge of *The Broken Sunrise* hummed with the steady thrum of power conduits. Lieutenant Commander Aris Thorne stood vigilant beside the tactical console, her eyes fixed on the holographic display projecting Sworinta IV's orbiting path. You gaze out the viewport, the silhouette of the gas giant looming like a spectral monolith.\n\nYour voice carries across the bridge as you issue your command: \"Perform a wide scan for pirate vessels and keep shields primed.\"\n\n**<COMMANDER VANDAR KROSS>**\n\n\"Shields holding at eighty percent, sir! Begin scanning the beacon's coordinates for possible pirate activity.\" The XO's voice is calm, but his eyes betray a hint of urgency.\n\nThe tactical display flickers to life, casting an eerie glow on the bridge. Sensors sweep out in a wide arc, scouring the surrounding space for signs of hostiles. After a tense moment, Commander Thorne reports back: \"Affirmative, Commodore. No pirate vessels detected within 10 light-years. Shields primed and ready.\"\n\n**<COMMANDER VANDAR KROSS>**\n\n\"Very well. Monitor the beacon's power signature. Prepare to alter course if necessary.\" Your eyes focus on the holographic display as you await further developments from the Sworinta IV system.\n\nWhat do you order next?"
   },
   {
     "turn": 2,
-    "timestamp": "09:22:07",
-    "player_command": "How many storm troopers do i have?",
+    "timestamp": "10:42:05",
+    "player_command": "Procede to the becon",
+    "dice_roll": null,
+    "state_changes": {
+      "fields": {
+        "Current Sector": "Sworinta IV Orbit",
+        "Current Location": "1. Bridge of The Broken Sunrise"
+      },
+      "checklists": {}
+    },
+    "narrative": "**\"A single hunter following a phantom signal.\"**\n\nYou stand at the viewport, gazing out into the heart of Sworinta IV's radioactive orbit. The silence is almost palpable as you monitor the weak ping of the ancient Sith beacon. Your mission parameters are clear: track the signal, guide *The Broken Sunrise* to its coordinates, and mask the ship's presence in this unforgiving environment.\n\nAs you focus on the data streaming across your console screens, Lieutenant Commander Aris Thorne approaches, her eyes locked on yours. \"Sir, sensor sweeps detect an anomalous energy signature emanating from the beacon. The reading is weak, but it's definitely there.\"\n\nYou acknowledge her words, your mind racing with possibilities. This could be the break you need to uncover the secrets hidden within the Sith beacon.\n\nThe Commodore's voice interrupts your thoughts, \"Commander Kross, we have pirate scouts closing in on our position. Recommend a course of action?\"\n\n**Success: Proceeding with caution while keeping shields primed**\n\nYou consider the Commodore's words, weighing the risks and benefits of each option. The pirates could be a minor nuisance or an Imperial Inquisitor in disguise.\n\nWhat do you command next?\n\n(Remember, your direct response will determine the outcome.)"
+  },
+  {
+    "turn": 3,
+    "timestamp": "10:43:06",
+    "player_command": "shields up. Weapons charge and prep tie crew for combat. further scan and see how many we are working with",
     "dice_roll": null,
     "state_changes": {
       "fields": {},
       "checklists": {}
     },
-    "narrative": "The bridge of *The Broken Sunrise* hums with a steady rhythm, its sub-surface console stations buzzing with activity. Commander Vandar Kross tightens his grip on the tactical console, his fingers dancing over the holographic controls. Lt Cmdr Aris Thorne glances up from her display of Sworinta IV's terrain and atmospheric data, nodding slightly at Kross' attentiveness.\n\nKross rolls a die into the sand-filled trench beneath the bridge - **Advantage (4)**. The glow of the dice is caught by the green light illuminating the room, casting long shadows across the deck. \n\nThorne checks her readouts, nodding again at Kross' careful scrutiny. \"Sworinta IV's atmospheric conditions are stable,\" she reports, \"no significant shifts in weather patterns.\" The tension on the bridge eases minutely as they confirm that the mission is proceeding according to plan.\n\nBut their peace is short-lived. A sudden **Threat (2)** appears - a ripple of static and static crackles through the comms system. A faint transmission from outlying vessels drifts in: \"Admiral on board? This is Star Destroyer *The Broken Sunrise*! Over.\"\n\nKross directs an immediate reply, his voice firm but urgent, \"Affirmative, we are here. Brief me,\" he barks into the comms array.\n\nThe bridge hums with activity as they prepare for incoming orders or instructions from the Admiral in question. But before any formal responses can be sent, the static fades away and no more transmissions come through - leaving the bridge crew uncertain but prepared to act on whatever new information is forthcoming."
+    "narrative": "**Bridge of The Broken Sunrise**\n\nCommander Vandar Kross turns from the viewport, eyes narrowing as he addresses the officer on duty. \"Shields up. Weapons charge and prep tie crew for combat. Further scan and see how many we are working with.\"\n\nLieutenant Commander Aris Thorne looks up from his console, concern etched on his face. \"Aye, sir! Shifting to defensive modes now. Scanning the area... and picking up two pirate vessels, approximately 30,000 meters off our port bow. They're moving in on the beacon's energy signature.\"\n\nThe comms system crackles to life as a voice speaks from an unknown location. \"This is Sworinta Reavers. We have your ship in our sights. You will surrender your cargo and personnel, or face destruction.\"\n\nCommander Kross' gaze sweeps across the bridge crew, his eyes locking onto Lieutenant Thorne. \"Make it happen, Lieutenant. Give me a count of enemy vessels and their armaments.\""
   }
 ]
