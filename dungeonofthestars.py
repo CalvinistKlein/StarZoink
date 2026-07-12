@@ -5,8 +5,9 @@ import json
 import webbrowser
 import threading
 import re
+import queue
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 
 # Add project root to path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -94,12 +95,17 @@ def colorize_narrative_to_html(text: str) -> str:
     ]
     
     def highlight_word_safely(src_text, word_regex, color):
-        pattern = re.compile(r'(\[[^\]]+\]|[^\[\]\s]*' + word_regex + r'[^\[\]\s]*)')
+        flags = 0
+        wr = word_regex
+        if wr.startswith('(?i)'):
+            flags = re.IGNORECASE
+            wr = wr[4:]
+        pattern = re.compile(r'(\\[[^\]]+\]|[^\\[\\]\\s]*' + wr + r'[^\\[\\]\\s]*)', flags)
         def replace(match):
             val = match.group(1)
             if val.startswith('['):
                 return val
-            inner_match = re.search(word_regex, val)
+            inner_match = re.search(wr, val, flags)
             if inner_match:
                 matched_name = inner_match.group(1)
                 return val.replace(matched_name, f"[{color}]{matched_name}[/{color}]")
@@ -361,19 +367,41 @@ def get_history():
 def run_command():
     if not engine:
         return jsonify({"error": "Engine not initialized"}), 400
-        
+
     data = request.json or {}
     cmd = data.get('command', '').strip()
     if not cmd:
         return jsonify({"error": "Empty command"}), 400
-        
-    narrative = engine.execute_turn(cmd)
-    html_output = colorize_narrative_to_html(narrative)
-    
-    return jsonify({
-        "narrative": narrative,
-        "html": html_output
-    })
+
+    # Run the turn in a worker thread and stream narrator tokens to the client
+    # over Server-Sent Events for a live, easy-to-follow output stream.
+    q = queue.Queue()
+
+    def worker():
+        try:
+            full = engine.execute_turn(cmd, stream_callback=lambda t: q.put(("token", t)))
+            q.put(("done", full))
+        except Exception as e:
+            q.put(("error", str(e)))
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        while True:
+            kind, val = q.get()
+            if kind == "token":
+                yield f"data: {json.dumps({'token': val})}\n\n"
+            elif kind == "error":
+                yield f"data: {json.dumps({'error': str(val)})}\n\n"
+                break
+            elif kind == "done":
+                narration = val or ""
+                html = colorize_narrative_to_html(narration)
+                yield f"event: done\ndata: {json.dumps({'html': html, 'command': cmd})}\n\n"
+                break
+
+    return Response(gen(), mimetype='text/event-stream',
+                   headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @app.route('/api/map', methods=['GET'])
@@ -821,19 +849,22 @@ def get_set_settings():
             
         cfg["OLLAMA_URL"] = data.get("OLLAMA_URL", cfg.get("OLLAMA_URL", "127.0.0.1:11434"))
         cfg["PARSER_MODEL"] = data.get("PARSER_MODEL", cfg.get("PARSER_MODEL", ""))
-        cfg["NARRATOR_MODEL"] = data.get("PARSER_MODEL", cfg.get("PARSER_MODEL", ""))
+        cfg["NARRATOR_MODEL"] = data.get("NARRATOR_MODEL", cfg.get("NARRATOR_MODEL", cfg.get("PARSER_MODEL", "")))
         cfg["SHOW_DICE_CHECKS"] = bool(data.get("SHOW_DICE_CHECKS", cfg.get("SHOW_DICE_CHECKS", False)))
         
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
             
-        # Re-initialize engine models with updated configs
+        # Re-initialize engine models with updated configs (live, no restart needed)
         if engine:
             try:
-                engine.llm.url = cfg["OLLAMA_URL"]
-                engine.llm.model = cfg["PARSER_MODEL"]
-            except:
-                pass
+                engine.llm.ollama_url = cfg["OLLAMA_URL"]
+                engine.llm.parser_model = cfg["PARSER_MODEL"]
+                engine.llm.narrator_model = cfg["NARRATOR_MODEL"] or cfg["PARSER_MODEL"]
+                if hasattr(engine, "rag") and engine.rag is not None:
+                    engine.rag.ollama_url = cfg["OLLAMA_URL"]
+            except Exception as e:
+                print(f"Warning: failed to apply live model change: {e}")
         return jsonify({"status": "ok"})
 
     # GET request
@@ -841,7 +872,7 @@ def get_set_settings():
         with open(config_path, "r", encoding="utf-8") as f:
             cfg = json.load(f)
     except:
-        cfg = {"OLLAMA_URL": "127.0.0.1:11434", "PARSER_MODEL": "dante_dante159/gary_gigax:latest", "SHOW_DICE_CHECKS": False}
+        cfg = {"OLLAMA_URL": "127.0.0.1:11434", "PARSER_MODEL": "dante_dante159/gary_gigax:latest", "NARRATOR_MODEL": "dante_dante159/gary_gigax:latest", "SHOW_DICE_CHECKS": False}
         
     return jsonify(cfg)
 
@@ -870,5 +901,5 @@ if __name__ == '__main__':
     # Start browser auto-open in a daemon thread
     threading.Thread(target=open_browser, daemon=True).start()
     
-    # Run server
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    # Run server (bound to all interfaces so it is reachable over Tailscale/LAN)
+    app.run(host="0.0.0.0", port=5000, debug=False)

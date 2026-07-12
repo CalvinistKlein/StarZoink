@@ -22,13 +22,19 @@ CHRONICLE_FILE = os.path.join(GAME_DATA_DIR, "campaign_chronicle.md")
 class DungeonOfTheStarsEngine:
     def __init__(self):
         self.llm = LLMAgent(config_path=os.path.join(BASE_DIR, "config.json"))
-        self.rag = RagEngine()
+        self.rag = RagEngine(ollama_url=self.llm.ollama_url)
         self.locations = self._load_locations()
         self.skills_map = self._load_skills_map()
         self.history = self._load_history()
         self.chronicle = self._load_chronicle()
         self.active_player_file = PLAYER_FILE
+        # Pre-cache intro
         self.initial_narrative = None
+
+        # Config flag: reflect explicit numeric state from narration into game state.
+        # Safe by default (only explicit, in-range statements). Set NARRATION_STATE_PARSE=false
+        # in config.json to disable entirely (engine remains source of truth).
+        self.auto_parse_stats = self._load_config_flag("NARRATION_STATE_PARSE", True)
 
     def get_initial_narrative(self):
         if not self.initial_narrative:
@@ -140,7 +146,7 @@ class DungeonOfTheStarsEngine:
                 return loc_id
         return "bridge"  # Default fallback
 
-    def execute_turn(self, player_command):
+    def execute_turn(self, player_command, stream_callback=None):
         """Executes a single game loop command."""
         # 1. Regex Guardrail for broad cheat commands
         command_clean = player_command.strip().lower()
@@ -285,7 +291,7 @@ class DungeonOfTheStarsEngine:
             if threats > 0:
                 current_strain = player_data["fields"].get("System Strain", "0")
                 current_strain_int = int(current_strain) if current_strain.isdigit() else 0
-                max_strain = 16  # From character sheet base max
+                max_strain = self._sheet_max("System Strain") or 16  # From character sheet base max
                 new_strain = min(max_strain, current_strain_int + threats)
                 state_updates["fields"]["System Strain"] = str(new_strain)
                 
@@ -376,6 +382,21 @@ class DungeonOfTheStarsEngine:
                 state_updates["fields"][k] = str(v)
                 
         # Write player sheet changes to disk
+        # Clamp critical vitals for consistency before persisting
+        for _fld, _mx in (("Wounds (Health)", 14), ("System Strain", 16)):
+            if _fld in state_updates["fields"]:
+                try:
+                    _v = int(state_updates["fields"][_fld])
+                    state_updates["fields"][_fld] = str(max(0, min(_mx, _v)))
+                except Exception:
+                    pass
+        if "Credits" in state_updates["fields"]:
+            try:
+                _v = int(state_updates["fields"]["Credits"])
+                state_updates["fields"]["Credits"] = str(max(0, _v))
+            except Exception:
+                pass
+
         if state_updates["fields"] or state_updates["checklists"]:
             MarkdownDB.write_file(self.active_player_file, state_updates)
             
@@ -392,10 +413,22 @@ class DungeonOfTheStarsEngine:
             "time_elapsed_minutes": time_elapsed
         }
         
-        narration = self.llm.generate_narration(player_command, action_outcome, loc_data, history_context)
+        if stream_callback:
+            chunks = []
+            for tok in self.llm.generate_narration(
+                player_command, action_outcome, loc_data, history_context, stream=True
+            ):
+                chunks.append(tok)
+                stream_callback(tok)
+            narration = "".join(chunks)
+        else:
+            narration = self.llm.generate_narration(
+                player_command, action_outcome, loc_data, history_context
+            )
         
-        # 10a. Scan narration for dynamic stats and update files in real-time
-        self._parse_narrative_for_stats(narration)
+        # 10a. Scan narration for dynamic stats and update files in real-time (optional, config-gated)
+        if getattr(self, "auto_parse_stats", True):
+            self._parse_narrative_for_stats(narration)
         
         # 10b. Update Campaign Chronicle
         turn_bullet = self.llm.summarize_turn(player_command, narration, state_updates)
@@ -414,64 +447,75 @@ class DungeonOfTheStarsEngine:
         
         return narration
 
+    def _load_config_flag(self, name, default):
+        try:
+            cfg_path = os.path.join(BASE_DIR, "config.json")
+            if os.path.exists(cfg_path):
+                with open(cfg_path) as f:
+                    cfg = json.load(f)
+                if name in cfg:
+                    return bool(cfg[name])
+        except Exception:
+            pass
+        return default
+
+    def _sheet_max(self, field_name):
+        """Reads the 'Maximum' column for a field from the active player sheet."""
+        try:
+            with open(self.active_player_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if field_name in line and "|" in line:
+                        parts = [p.strip() for p in line.split("|") if p.strip()]
+                        if len(parts) >= 2 and parts[1].replace("**", "").isdigit():
+                            return int(parts[1].replace("**", ""))
+        except Exception:
+            pass
+        return None
+
     def _parse_narrative_for_stats(self, narration):
-        """Scans the narration text for dynamic stat updates (like hull trauma, system strain, wounds) and applies them to the correct entity."""
+        """Safely reflect explicit, in-range numeric state statements from the
+        narration into game state. Conservative to avoid corrupting state from
+        LLM prose hallucinations (narrator is instructed not to mention numbers,
+        so this only fires on explicit, deliberate statements)."""
         import re
         ship_file = self._find_ship_file("The_Broken_Sunrise")
         player_file = self.active_player_file
-        
-        # Split narration into sentences to evaluate context properly
-        sentences = re.split(r'[.!?\n]', narration)
-        
-        for sentence in sentences:
-            sentence_lower = sentence.lower()
-            if not sentence_lower.strip():
-                continue
-                
-            # 1. Check for minimal power/hull
-            if "minimal hull" in sentence_lower or "hull is minimal" in sentence_lower:
-                if ship_file and os.path.exists(ship_file):
-                    MarkdownDB.write_file(ship_file, {"fields": {"Hull Trauma": "128"}})
-            if "minimal power" in sentence_lower or "power is minimal" in sentence_lower:
-                if ship_file and os.path.exists(ship_file):
-                    MarkdownDB.write_file(ship_file, {"fields": {"System Strain": "64"}})
 
-            # 2. Parse Hull integrity %
-            match_hull_pct = re.search(r'hull integrity at\s+(\d+)\s*(?:percent|%)', sentence, re.IGNORECASE)
-            if match_hull_pct and ship_file and os.path.exists(ship_file):
-                pct = int(match_hull_pct.group(1))
-                trauma = int(160 * (100 - pct) / 100)
-                MarkdownDB.write_file(ship_file, {"fields": {"Hull Trauma": str(trauma)}})
+        # Ship Hull Trauma (explicit absolute statements only)
+        ship_state = {}
+        m = re.search(r"hull\s+(?:trauma|damage)\s+(?:is|at|of|=)?\s*(\d+)", narration, re.IGNORECASE)
+        if not m:
+            m = re.search(r"hull\s+integrity\s+(?:at|is|of)?\s*(\d+)\s*%", narration, re.IGNORECASE)
+            if m:
+                num = int(m.group(1))
+                ship_state["Hull Trauma"] = str(max(0, min(160, round(160 * (100 - num) / 100))))
+        else:
+            ship_state["Hull Trauma"] = str(max(0, min(160, int(m.group(1)))))
 
-            # 3. Parse Hull damage/trauma
-            match_hull_val = re.search(r'(?:sustained|has|with)\s+(\d+)\s*(?:points of\s+)?(?:hull damage|hull trauma)', sentence, re.IGNORECASE)
-            if not match_hull_val:
-                match_hull_val = re.search(r'hull trauma\s+(?:is|at|of)\s+(\d+)', sentence, re.IGNORECASE)
-            if match_hull_val and ship_file and os.path.exists(ship_file):
-                trauma = int(match_hull_val.group(1))
-                MarkdownDB.write_file(ship_file, {"fields": {"Hull Trauma": str(trauma)}})
+        # Ship System Strain (explicit absolute statements only)
+        m = re.search(r"system\s+strain\s+(?:is|at|of|=)?\s*(\d+)", narration, re.IGNORECASE)
+        if m:
+            ship_state["System Strain"] = str(max(0, min(80, int(m.group(1)))))
 
-            # 4. Parse System Strain (checks context)
-            match_strain = re.search(r'(?:sustained|has|at|of|by)\s+(\d+)\s*(?:points of\s+)?system strain', sentence, re.IGNORECASE)
-            if not match_strain:
-                match_strain = re.search(r'system strain\s+(?:is|at|of)\s+(\d+)', sentence, re.IGNORECASE)
-            if match_strain:
-                strain = int(match_strain.group(1))
-                # If the sentence mentions the ship, apply to ship. Else apply to player.
-                if any(w in sentence_lower for w in ("ship", "flagship", "sunrise", "vessel", "cruiser", "command tower", "reactor", "shield", "engines")):
-                    if ship_file and os.path.exists(ship_file):
-                        MarkdownDB.write_file(ship_file, {"fields": {"System Strain": str(strain)}})
-                else:
-                    if player_file and os.path.exists(player_file):
-                        MarkdownDB.write_file(player_file, {"fields": {"System Strain": str(strain)}})
+        if ship_state and ship_file and os.path.exists(ship_file):
+            try:
+                MarkdownDB.write_file(ship_file, {"fields": ship_state})
+            except Exception as e:
+                print(f"Warning: Failed to reflect ship state: {e}")
 
-            # 5. Parse Wounds / Health
-            match_wounds = re.search(r'(?:sustained|has)\s+(\d+)\s*wounds', sentence, re.IGNORECASE)
-            if not match_wounds:
-                match_wounds = re.search(r'wounds\s+(?:is|at|of)\s+(\d+)', sentence, re.IGNORECASE)
-            if match_wounds and player_file and os.path.exists(player_file):
-                wounds = int(match_wounds.group(1))
-                MarkdownDB.write_file(player_file, {"fields": {"Wounds (Health)": str(wounds)}})
+        # Player vitals (explicit absolute statements only)
+        player_state = {}
+        m = re.search(r"wounds?\s+(?:is|at|of|=)?\s*(\d+)", narration, re.IGNORECASE)
+        if m:
+            player_state["Wounds (Health)"] = str(max(0, min(14, int(m.group(1)))))
+        m = re.search(r"strain\s+(?:is|at|of|=)?\s*(\d+)", narration, re.IGNORECASE)
+        if m:
+            player_state["System Strain"] = str(max(0, min(16, int(m.group(1)))))
+        if player_state and player_file and os.path.exists(player_file):
+            try:
+                MarkdownDB.write_file(player_file, {"fields": player_state})
+            except Exception as e:
+                print(f"Warning: Failed to reflect player state: {e}")
 
     def _find_ship_file(self, ship_name):
         """Searches recursively for a ship file by its name."""

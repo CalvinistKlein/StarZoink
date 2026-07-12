@@ -781,8 +781,12 @@
                     <input type="text" class="form-input" id="setting-url" placeholder="192.168.1.121:11434">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" for="setting-model">LLM Command Model</label>
+                    <label class="form-label" for="setting-model">Command Parser Model</label>
                     <input type="text" class="form-input" id="setting-model" placeholder="dante_dante159/gary_gigax:latest">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="setting-narrator">Storyteller (Narrator) Model</label>
+                    <input type="text" class="form-input" id="setting-narrator" placeholder="dante_dante159/gary_gigax:latest">
                 </div>
                 <div class="form-group">
                     <label class="form-checkbox">
@@ -987,124 +991,83 @@
             const input = document.getElementById('cmd-input');
             const cmd = input.value.trim();
             if (!cmd) return;
-            
+
             input.value = '';
-            
-            // Render the prompt instantly
-            appendHistoryItem(cmd, '<span style="color: var(--md-sys-color-on-surface-variant);">Processing transmission...</span><span class="cursor"></span>');
-            scrollToBottom();
-            
             isTyping = true;
             document.getElementById('btn-send').disabled = true;
-            
+
+            const log = document.getElementById('narrative-log');
+            const el = document.createElement('div');
+            el.className = 'narrative-entry';
+            el.innerHTML = `<div class="prompt-line">${escapeHtml(cmd)}</div><div class="live-content"></div><span class="cursor"></span>`;
+            log.appendChild(el);
+            const content = el.querySelector('.live-content');
+            scrollToBottom();
+
             try {
                 const res = await fetch('/api/command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ command: cmd })
                 });
-                const data = await res.json();
-                
-                // Remove processing marker
-                const log = document.getElementById('narrative-log');
-                log.removeChild(log.lastChild);
-                
-                // Set up typewriter streaming
-                const el = document.createElement('div');
-                el.className = 'narrative-entry';
-                el.innerHTML = `<div class="prompt-line">${cmd}</div><div id="typing-content"></div><span class="cursor"></span>`;
-                log.appendChild(el);
-                
-                await streamTypewriter(data.html, 'typing-content');
-                await fetchStatus();
-                
-                // Auto-refresh active views
-                if (document.getElementById('overlay-map').classList.contains('active')) {
-                    await loadSectorMap();
+                if (!res.ok || !res.body) throw new Error('No response stream');
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    let idx;
+                    while ((idx = buffer.indexOf('\n\n')) >= 0) {
+                        const chunk = buffer.slice(0, idx);
+                        buffer = buffer.slice(idx + 2);
+                        handleSSE(chunk, content);
+                    }
                 }
-                if (document.getElementById('overlay-ship').classList.contains('active')) {
-                    await loadShipSchematic();
-                }
+                if (buffer.trim()) handleSSE(buffer, content);
             } catch (err) {
                 console.error(err);
-                appendHistoryItem('', '<span class="red">SYSTEM ERROR: Command transmission timed out or failed to resolve. Check server log.</span>');
+                content.innerHTML = '<span class="red">SYSTEM ERROR: transmission failed. Check server log.</span>';
             } finally {
+                const cur = el.querySelector('.cursor');
+                if (cur) cur.remove();
                 isTyping = false;
                 document.getElementById('btn-send').disabled = false;
                 input.focus();
+                scrollToBottom();
+                fetchStatus();
+                if (document.getElementById('overlay-map').classList.contains('active')) loadSectorMap();
+                if (document.getElementById('overlay-ship').classList.contains('active')) loadShipSchematic();
             }
         }
 
-        // Typewriter streaming effect
-        function streamTypewriter(htmlContent, targetId) {
-            return new Promise((resolve) => {
-                const container = document.getElementById(targetId);
-                
-                const temp = document.createElement('div');
-                temp.innerHTML = htmlContent;
-                const nodes = Array.from(temp.childNodes);
-                
-                let nodeIdx = 0;
-                container.innerHTML = '';
-                
-                function printNextNode() {
-                    if (nodeIdx >= nodes.length) {
-                        container.removeAttribute('id');
-                        const cursor = container.nextElementSibling;
-                        if (cursor && cursor.className === 'cursor') {
-                            cursor.remove();
-                        }
-                        resolve();
-                        return;
-                    }
-                    
-                    const node = nodes[nodeIdx];
-                    if (node.nodeType === Node.TEXT_NODE) {
-                        const words = node.textContent.split(/(\s+)/);
-                        let wordIdx = 0;
-                        const textSpan = document.createTextNode('');
-                        container.appendChild(textSpan);
-                        
-                        function printNextWord() {
-                            if (wordIdx >= words.length) {
-                                nodeIdx++;
-                                printNextNode();
-                                return;
-                            }
-                            textSpan.textContent += words[wordIdx];
-                            wordIdx++;
-                            scrollToBottom();
-                            setTimeout(printNextWord, 6);
-                        }
-                        printNextWord();
-                    } else {
-                        const clone = node.cloneNode(false);
-                        container.appendChild(clone);
-                        
-                        const childWords = node.textContent ? node.textContent.split(/(\s+)/) : [];
-                        if (childWords.length > 0) {
-                            let childIdx = 0;
-                            function printNextChildWord() {
-                                if (childIdx >= childWords.length) {
-                                    nodeIdx++;
-                                    printNextNode();
-                                    return;
-                                }
-                                clone.textContent += childWords[childIdx];
-                                childIdx++;
-                                scrollToBottom();
-                                setTimeout(printNextChildWord, 6);
-                            }
-                            printNextChildWord();
-                        } else {
-                            nodeIdx++;
-                            printNextNode();
-                        }
-                    }
-                }
-                
-                printNextNode();
-            });
+        function handleSSE(chunk, content) {
+            const lines = chunk.split('\n');
+            let event = 'message';
+            let data = '';
+            for (const line of lines) {
+                if (line.startsWith('event:')) event = line.slice(6).trim();
+                else if (line.startsWith('data:')) data += line.slice(5).trim();
+            }
+            if (!data) return;
+            let obj;
+            try { obj = JSON.parse(data); } catch (e) { return; }
+            if (event === 'done') {
+                content.innerHTML = obj.html;
+            } else if (obj.token !== undefined) {
+                content.textContent += obj.token;
+                scrollToBottom();
+            } else if (obj.error) {
+                content.innerHTML = '<span class="red">SYSTEM ERROR: ' + escapeHtml(obj.error) + '</span>';
+            }
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
         }
 
         document.getElementById('btn-send').addEventListener('click', transmitCommand);
@@ -1181,6 +1144,7 @@
                 const data = await res.json();
                 document.getElementById('setting-url').value = data.OLLAMA_URL;
                 document.getElementById('setting-model').value = data.PARSER_MODEL;
+                document.getElementById('setting-narrator').value = data.NARRATOR_MODEL || data.PARSER_MODEL;
                 document.getElementById('setting-dice').checked = data.SHOW_DICE_CHECKS;
             } catch (err) {
                 console.error("Failed to read current config:", err);
@@ -1190,13 +1154,14 @@
         document.getElementById('btn-save-settings').addEventListener('click', async () => {
             const url = document.getElementById('setting-url').value.trim();
             const model = document.getElementById('setting-model').value.trim();
+            const narrator = document.getElementById('setting-narrator').value.trim();
             const dice = document.getElementById('setting-dice').checked;
-            
+
             try {
                 const res = await fetch('/api/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ OLLAMA_URL: url, PARSER_MODEL: model, SHOW_DICE_CHECKS: dice })
+                    body: JSON.stringify({ OLLAMA_URL: url, PARSER_MODEL: model, NARRATOR_MODEL: narrator, SHOW_DICE_CHECKS: dice })
                 });
                 const data = await res.json();
                 if (data.status === 'ok') {

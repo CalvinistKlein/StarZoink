@@ -7,6 +7,15 @@ import requests
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_PARSER_MODEL = "dante_dante159/gary_gigax:latest"
 DEFAULT_NARRATOR_MODEL = "dante_dante159/gary_gigax:latest"
+DEFAULT_EMBED_MODEL = "nomic-embed-text"
+
+# Forbidden mechanical words that should never leak into narrative prose
+_MECH_WORDS = re.compile(
+    r"\b(die|dice|d20|d10|d6|roll(?:ed|s|ing)?|triumph|despair|advantage|threat|"
+    r"success(?:es)?|failure(?:s)?|crit(?:ical)?|natural 20|1d|2d|3d|4d|8d|12d)\b",
+    re.IGNORECASE,
+)
+
 
 class LLMAgent:
     def __init__(self, config_path=None):
@@ -14,112 +23,184 @@ class LLMAgent:
         self.ollama_url = DEFAULT_OLLAMA_URL
         self.parser_model = DEFAULT_PARSER_MODEL
         self.narrator_model = DEFAULT_NARRATOR_MODEL
-        
+        self.embed_model = DEFAULT_EMBED_MODEL
+
+        # Auto-discover config.json next to this module if not supplied
+        # (prevents silent fallback to hardcoded defaults when LLMAgent()
+        #  is instantiated without a config_path).
+        if not config_path:
+            _here = os.path.dirname(os.path.abspath(__file__))
+            for cand in (os.path.join(_here, "config.json"),
+                         os.path.join(os.getcwd(), "config.json")):
+                if os.path.exists(cand):
+                    config_path = cand
+                    break
+
         # Load config.json if present
         if config_path and os.path.exists(config_path):
             try:
                 with open(config_path, "r") as f:
                     cfg = json.load(f)
-                    self.api_key = cfg.get("GEMINI_API_KEY", self.api_key)
-                    url = cfg.get("OLLAMA_URL", self.ollama_url)
-                    if url and not url.startswith("http://") and not url.startswith("https://"):
-                        url = "http://" + url
-                    self.ollama_url = url
-                    self.parser_model = cfg.get("PARSER_MODEL", self.parser_model)
-                    self.narrator_model = cfg.get("NARRATOR_MODEL", self.narrator_model)
+                self.api_key = cfg.get("GEMINI_API_KEY", self.api_key)
+                url = cfg.get("OLLAMA_URL", self.ollama_url)
+                if url and not url.startswith("http://") and not url.startswith("https://"):
+                    url = "http://" + url
+                self.ollama_url = url
+                self.parser_model = cfg.get("PARSER_MODEL", self.parser_model)
+                self.narrator_model = cfg.get("NARRATOR_MODEL", self.narrator_model) or self.parser_model
+                self.embed_model = cfg.get("EMBED_MODEL", self.embed_model)
             except Exception as e:
                 print(f"Warning: Failed to load config.json: {e}")
 
+    # ------------------------------------------------------------------ #
+    # Low level providers
+    # ------------------------------------------------------------------ #
     def _call_gemini(self, prompt, model="gemini-1.5-flash", system_instruction=None):
+        if not self.api_key:
+            raise Exception("No GEMINI_API_KEY configured")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
         headers = {"Content-Type": "application/json"}
-        
+
         contents = [{"parts": [{"text": prompt}]}]
         data = {"contents": contents}
-        
         if system_instruction:
-            data["systemInstruction"] = {
-                "parts": [{"text": system_instruction}]
-            }
-            
+            data["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
         try:
-            res = requests.post(url, headers=headers, json=data, timeout=10)
+            res = requests.post(url, headers=headers, json=data, timeout=60)
             if res.status_code == 200:
                 resp_json = res.json()
                 return resp_json["candidates"][0]["content"]["parts"][0]["text"]
             else:
-                raise Exception(f"Gemini API returned code {res.status_code}: {res.text}")
+                raise Exception(f"Gemini API returned code {res.status_code}: {res.text[:300]}")
         except Exception as e:
             raise Exception(f"Gemini connection failed: {e}")
 
-    def _call_ollama(self, prompt, model, system_instruction=None):
+    def _call_ollama(self, prompt, model, system_instruction=None, stream=False,
+                     num_ctx=8192, num_predict=1536):
         url = f"{self.ollama_url}/api/generate"
-        
         data = {
             "model": model,
             "prompt": prompt,
-            "stream": False,
-            "options": {
-                "num_ctx": 4096,
-                "num_predict": 1536
-            }
+            "stream": stream,
+            "options": {"num_ctx": num_ctx, "num_predict": num_predict},
         }
-        
         if system_instruction:
             data["system"] = system_instruction
-            
-        try:
-            res = requests.post(url, json=data, timeout=60)
-            if res.status_code == 200:
-                return res.json().get("response", "")
-            else:
-                raise Exception(f"Ollama returned code {res.status_code}")
-        except Exception as e:
-            raise Exception(f"Ollama connection failed: {e}")
+
+        if stream:
+            def _gen():
+                try:
+                    with requests.post(url, json=data, timeout=(15, 600), stream=True) as res:
+                        if res.status_code != 200:
+                            raise Exception(f"Ollama returned code {res.status_code}: {res.text[:300]}")
+                        for line in res.iter_lines():
+                            if not line:
+                                continue
+                            try:
+                                obj = json.loads(line)
+                            except Exception:
+                                continue
+                            if "error" in obj:
+                                raise Exception(f"Ollama error: {obj['error']}")
+                            tok = obj.get("response", "")
+                            if tok:
+                                yield tok
+                            if obj.get("done"):
+                                break
+                except Exception as e:
+                    raise Exception(f"Ollama streaming failed: {e}")
+            return _gen()
+        else:
+            try:
+                res = requests.post(url, json=data, timeout=180)
+                if res.status_code == 200:
+                    return res.json().get("response", "")
+                else:
+                    raise Exception(f"Ollama returned code {res.status_code}: {res.text[:300]}")
+            except Exception as e:
+                raise Exception(f"Ollama connection failed: {e}")
 
     def _is_ollama_running(self):
         try:
-            res = requests.get(f"{self.ollama_url}/api/tags", timeout=1)
+            res = requests.get(f"{self.ollama_url}/api/tags", timeout=2)
             return res.status_code == 200
-        except:
+        except Exception:
             return False
 
-    def query(self, prompt, system_instruction=None, is_parser=True):
+    def query(self, prompt, system_instruction=None, is_parser=True, stream=False):
         """
-        Executes query targeting Gemini -> Ollama. Raises ConnectionError if both fail.
+        Executes query targeting Gemini -> Ollama.
+        Returns a string (stream=False) or a generator of text chunks (stream=True,
+        narrator only). Raises ConnectionError if both providers fail.
         """
         errors = []
 
         # 1. Try Gemini if API key is provided
         if self.api_key:
             try:
-                model = "gemini-1.5-flash"
-                return self._call_gemini(prompt, model, system_instruction)
+                return self._call_gemini(prompt, "gemini-1.5-flash", system_instruction)
             except Exception as e:
                 errors.append(f"Gemini failed: {e}")
-                
-        # 2. Try Ollama if running
+
+        # 2. Try Ollama
         if self._is_ollama_running():
             try:
                 model = self.parser_model if is_parser else self.narrator_model
-                return self._call_ollama(prompt, model, system_instruction)
+                num_predict = 1024 if is_parser else 2048
+                if stream and not is_parser:
+                    return self._call_ollama(prompt, model, system_instruction,
+                                             stream=True, num_predict=num_predict)
+                return self._call_ollama(prompt, model, system_instruction,
+                                         stream=False, num_predict=num_predict)
             except Exception as e:
                 errors.append(f"Ollama failed: {e}")
         else:
             errors.append(f"Ollama is not running at {self.ollama_url}")
-            
-        # Raise error since mock fallback is disabled by user request
+
         error_msg = (
             "DungeonOfTheStars Engine Connection Failure: No active LLM provider could be reached.\n"
-            "Please check that Ollama is running locally (port 11434) or set the GEMINI_API_KEY environment variable.\n"
+            "Please check that Ollama is running (port 11434) or set the GEMINI_API_KEY environment variable.\n"
             "Details:\n" + "\n".join(f" - {err}" for err in errors)
         )
         raise ConnectionError(error_msg)
 
+    # ------------------------------------------------------------------ #
+    # JSON extraction helper (robust against prose / code fences)
+    # ------------------------------------------------------------------ #
+    def _extract_json(self, text):
+        if not text:
+            return None
+        t = text.strip()
+        # Strip markdown code fences if present
+        if t.startswith("```"):
+            t = re.sub(r"^```[a-zA-Z]*\n?", "", t)
+            t = re.sub(r"\n?```$", "", t)
+            t = t.strip()
+        # Direct parse
+        try:
+            return json.loads(t)
+        except Exception:
+            pass
+        # Find first { ... last }
+        start = t.find("{")
+        end = t.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidate = t[start:end + 1]
+            try:
+                return json.loads(candidate)
+            except Exception:
+                pass
+        return None
+
+    # ------------------------------------------------------------------ #
+    # Parser
+    # ------------------------------------------------------------------ #
     def parse_command(self, command, location_data, player_data, history_data):
         """
-        Parses a natural language player command.
-        Returns a dictionary mapping to the structured JSON schema.
+        Parses a natural language player command into structured JSON.
+        On any failure to obtain valid JSON, returns a safe 'valid=False' dict
+        (instead of silently accepting the command).
         """
         system_instruction = (
             "You are the DungeonOfTheStars Parser & Judge. Your job is to translate the user's natural language command "
@@ -165,7 +246,7 @@ class LLMAgent:
             "  } | null\n"
             "}"
         )
-        
+
         prompt = (
             f"LOCATION DATA:\n{json.dumps(location_data, indent=2)}\n\n"
             f"PLAYER STATUS:\n{json.dumps(player_data, indent=2)}\n\n"
@@ -173,35 +254,58 @@ class LLMAgent:
             f"PLAYER COMMAND:\n\"{command}\"\n\n"
             "Provide the JSON response block below. Ensure it is parseable JSON (no markdown formatting code blocks, just raw JSON)."
         )
-        
-        raw_response = self.query(prompt, system_instruction, is_parser=True)
-        
-        # Clean response of markdown wraps if any
-        cleaned = raw_response.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(json)?\n", "", cleaned)
-            cleaned = re.sub(r"\n```$", "", cleaned)
-            cleaned = cleaned.strip()
-            
-        try:
-            return json.loads(cleaned)
-        except Exception as e:
-            # If JSON parsing fails, return a safe recovery parser dictionary
+
+        raw = self.query(prompt, system_instruction, is_parser=True)
+        parsed = self._extract_json(raw)
+        if parsed is None:
+            # One retry before giving up
+            raw2 = self.query(prompt, system_instruction, is_parser=True)
+            parsed = self._extract_json(raw2)
+
+        if parsed is None:
             return {
-                "valid": True,
-                "rejection_reason": None,
+                "valid": False,
+                "rejection_reason": "The command parser returned an unreadable response. Please rephrase your order, Commodore.",
                 "action_type": "other",
                 "skill_check": {"required": False, "skill": None, "difficulty": 1},
-                "movement": {"transit": False, "target_location_id": None},
+                "movement": {"transit": False, "target_location_id": None, "target_location_name": None},
                 "time_elapsed_minutes": 1,
                 "background_tasks": [],
                 "engine_mutations": {},
-                "detected_npc": None
+                "detected_npc": None,
             }
 
-    def generate_narration(self, command, action_result, location_data, history_data):
+        # Normalise keys so the engine never hits KeyErrors
+        parsed.setdefault("valid", True)
+        parsed.setdefault("rejection_reason", None)
+        parsed.setdefault("action_type", "other")
+        parsed.setdefault("time_elapsed_minutes", 1)
+        parsed.setdefault("background_tasks", [])
+        sc = parsed.get("skill_check") or {}
+        sc.setdefault("required", False)
+        sc.setdefault("skill", None)
+        sc.setdefault("difficulty", 1)
+        parsed["skill_check"] = sc
+        mv = parsed.get("movement") or {}
+        mv.setdefault("transit", False)
+        mv.setdefault("target_location_id", None)
+        mv.setdefault("target_location_name", None)
+        parsed["movement"] = mv
+        em = parsed.get("engine_mutations") or {}
+        for k in ("wounds_change", "strain_change", "credits_change", "item_added", "item_removed"):
+            em.setdefault(k, 0 if k.endswith("_change") else None)
+        em.setdefault("custom_state_updates", {})
+        parsed["engine_mutations"] = em
+        parsed.setdefault("detected_npc", None)
+        return parsed
+
+    # ------------------------------------------------------------------ #
+    # Narrator
+    # ------------------------------------------------------------------ #
+    def generate_narration(self, command, action_result, location_data, history_data, stream=False):
         """
         Generates atmospheric narrative descriptions based on the command outcome.
+        Returns a string (stream=False) or a generator of text chunks (stream=True).
         """
         system_instruction = (
             "You are the DungeonOfTheStars Narrator, writing descriptions for a Star Wars themed tactical text adventure.\n"
@@ -210,7 +314,7 @@ class LLMAgent:
             "CRITICAL RULES - DIRECT EXECUTION & DIALOGUE:\n"
             "- DIRECT RESPONSE AND DIALOGUE: Your narrative MUST directly address and answer the player's immediate statement, command, or query. If the player asks a question to Kross or any NPC, that NPC MUST answer directly in dialogue. Never write a generic response that ignores or skips over the dialogue. If the player says something, NPCs must respond directly to what was said.\n"
             "- The Commodore's words, announcements, physical attacks, and orders are ABSOLUTE CANON. Never retcon or ignore them. If the Commodore fires a weapon at someone, do not make the NPC 'calmly step aside' or lecture the Commodore unless a mechanical dice failure occurred. If the Commodore gives an order or makes an announcement, NPCs must react realistically without inventing fake messages from Central Command that contradict the player!\n"
-            "- DIALOGUE SPEAKER HEADERS: Whenever any NPC speaks, their dialogue MUST be preceded by an uppercase header on its own line (for example, <COMMANDER VANDAR KROSS> on its own line, followed by the dialogue on the next line: \"Shields holding at eighty percent, sir!\").\n"
+            "- DIALOGUE SPEAKER HEADERS: Whenever any NPC speaks, their dialogue MUST be preceded by an uppercase header on its own line (for example, <COMMANDER VANDAR KROSS> on its own line, followed by the dialogue on the next line: \"Shields holding at eighty percent, sir!\\\").\n"
             "- SECRECY OF THE BEACON: The crew, officers (including Commander Kross), and all external factions believe the signal is an ancient distress call from a derelict warship. Only the Commodore (player) and the Inquisitor know it is an ancient Sith beacon. Ensure all dialogues and crew reactions reflect this secrecy (e.g., crew members speaking about salvaging a derelict warship, while the Inquisitor speaks to you privately or via encrypted channels about the true nature of the Sith artifact).\n"
             "- Never mention Earth or real-world geography/history.\n"
             "- Do not repeat background information or location descriptions if they have not changed. Focus on the action itself and answering the query.\n"
@@ -226,13 +330,13 @@ class LLMAgent:
             try:
                 with open(campaign_file, "r", encoding="utf-8") as f:
                     campaign_context = f.read()
-            except:
+            except Exception:
                 pass
-                
+
         prompt = ""
         if campaign_context:
             prompt += f"CAMPAIGN PLOT GUIDE & ACT OUTLINE:\n{campaign_context}\n\n"
-            
+
         prompt += (
             f"LOCATION:\n{json.dumps(location_data, indent=2)}\n\n"
             f"COMMAND:\n\"{command}\"\n\n"
@@ -240,8 +344,9 @@ class LLMAgent:
             f"RECENT HISTORY & CAMPAIGN CHRONICLE:\n{json.dumps(history_data, indent=2)}\n\n"
             "Generate the narrative prose now. Ensure you answer the player's query or resolve their command directly and thoroughly. Do not mention dice, rolls, or numbers."
         )
-        
-        return self.query(prompt, system_instruction, is_parser=False).strip()
+
+        return self.query(prompt, system_instruction, is_parser=False, stream=stream).strip() if not stream \
+            else self.query(prompt, system_instruction, is_parser=False, stream=True)
 
     def summarize_turn(self, command, narration, state_changes):
         """
@@ -255,14 +360,14 @@ class LLMAgent:
             "Format: '* [Brief summary of action and result]'\n"
             "Example: '* Met Chief Engineer Titus Thul in Engineering; learned hyperdrive is offline.'"
         )
-        
+
         prompt = (
             f"PLAYER ACTION: {command}\n"
             f"NARRATION OUTCOME: {narration}\n"
             f"STATE MUTATIONS: {json.dumps(state_changes)}\n"
             "Provide only the single bullet point starting with '* '."
         )
-        
+
         try:
             summary = self.query(prompt, system_instruction, is_parser=True)
             return summary.strip()
@@ -315,7 +420,7 @@ class LLMAgent:
             "*   [Item 1]\n"
             "*   [Item 2]\n"
         )
-        
+
         prompt = (
             f"NPC NAME: {name}\n"
             f"ROLE: {role}\n"
@@ -324,9 +429,9 @@ class LLMAgent:
         )
         if lore_context:
             prompt += f"WOOKIEEPEDIA LORE CONTEXT:\n{lore_context}\n"
-            
+
         prompt += "\nGenerate the raw markdown character sheet now."
-        
+
         try:
             card_content = self.query(prompt, system_instruction, is_parser=False)
             return card_content.strip()
@@ -373,15 +478,15 @@ class LLMAgent:
             try:
                 with open(campaign_file, "r", encoding="utf-8") as f:
                     campaign_context = f.read()
-            except:
+            except Exception:
                 pass
-                
+
         plotbasis_file = os.path.join(base_dir, "plotbasis.md")
         if os.path.exists(plotbasis_file):
             try:
                 with open(plotbasis_file, "r", encoding="utf-8") as f:
                     plotbasis_context = f.read()
-            except:
+            except Exception:
                 pass
 
         prompt = ""
@@ -389,7 +494,7 @@ class LLMAgent:
             prompt += f"CAMPAIGN PLOT GUIDE:\n{campaign_context}\n\n"
         if plotbasis_context:
             prompt += f"PLOT BASIS / SETTING PREMISE:\n{plotbasis_context}\n\n"
-            
+
         prompt += (
             f"LOCATION DATA:\n{json.dumps(location_data, indent=2)}\n\n"
             "Generate the opening narration now. It must be highly detailed and atmospheric (3-5 paragraphs), describing "
@@ -421,4 +526,3 @@ class LLMAgent:
                 "who received the Emperor's private briefings—the signal resonates with a cold, distinct dark-side vibration. The Sith beacon has active power.\n\n"
                 "Commander Kross stands nearby, awaiting your command."
             )
-
