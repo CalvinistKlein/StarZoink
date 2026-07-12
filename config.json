@@ -1,6 +1,6 @@
 {
   "OLLAMA_URL": "100.121.214.83:11434",
-  "PARSER_MODEL": "dante_dante159/gary_gigax:latest",
+  "PARSER_MODEL": "qwen2.5:7b",
   "NARRATOR_MODEL": "qwen2.5:7b",
   "SHOW_DICE_CHECKS": false
 }
