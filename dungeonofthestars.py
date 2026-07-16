@@ -938,7 +938,7 @@ def open_browser():
 
 
 if __name__ == '__main__':
-    print("★ Launching StarZork Flagship Tactical Web Server on port 5000 ★")
+    print("★ Launching Dungeon of the Stars Flagship Tactical Web Server on port 5000 ★")
     print("Press Ctrl+C to stop.")
     
     # Start browser auto-open in a daemon thread

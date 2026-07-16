@@ -1,6 +1,6 @@
-# Campaign Guide: StarZork — Shadows of Sworinta (Sith Beacon Mission)
+# Campaign Guide: Dungeon of the Stars — Shadows of Sworinta (Sith Beacon Mission)
 
-This document outlines the overarching, branching campaign structure for the StarZork engine. It serves as a tactical narrative blueprint for the Game Master (LLM) and the player, incorporating persistent consequences, mutinies, structural hazards, and capital ship encounters.
+This document outlines the overarching, branching campaign structure for the Dungeon of the Stars engine. It serves as a tactical narrative blueprint for the Game Master (LLM) and the player, incorporating persistent consequences, mutinies, structural hazards, and capital ship encounters.
 
 ---
 
