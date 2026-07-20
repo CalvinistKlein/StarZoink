@@ -301,6 +301,14 @@ class LLMAgent:
         Returns a string (stream=False) or a generator of text chunks (stream=True).
         """
         system_instruction = self.prompts.get("narrator", "")
+        # Inject curated few-shot examples (Path B: no fine-tune needed) to lock
+        # format + tone. Each example = CONTEXT (command/scene/dice/in-scene) -> NARRATION.
+        examples = self.prompts.get("narrator_examples", [])
+        if examples:
+            ex_text = "\n\nEXAMPLES (follow this exact format and tone):\n"
+            for i, ex in enumerate(examples, 1):
+                ex_text += f"\n--- Example {i} ---\nCONTEXT:\n{ex.get('context','')}\nNARRATION:\n{ex.get('narration','')}\n"
+            system_instruction = system_instruction + ex_text
         # Load campaign plot if available to guide acts and narrative branches
         campaign_context = ""
         base_dir = os.path.dirname(os.path.abspath(__file__))
